@@ -1,0 +1,19 @@
+# Binaries
+andrho-api
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Env
+.env
+.env.local
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
