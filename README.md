@@ -59,6 +59,68 @@ In development, a `.env` file is loaded automatically (via `godotenv`) if
 present; its absence is not an error. In production (Railway), env vars are
 injected directly by the platform.
 
+## Deploying on Railway
+
+Deploy this as a **new service in the same Railway project** where `WebTracker`
+and `andrho-tracker-dashboard` already run (so it can reference their existing
+Postgres/Redis plugins instead of provisioning new ones).
+
+1. **New service** → deploy from the `andrho-api` repo (GitHub) or via `railway up`
+   from this directory. `railway.json` already sets the build/start commands
+   (`go build -o bin/andrho-api .` / `./bin/andrho-api`), Nixpacks will detect
+   Go from `go.mod` automatically.
+
+2. **Postgres — can you reuse the same instance as the tracker? Yes.** Two ways,
+   pick based on how much isolation you want:
+   - **Simplest (works with zero extra setup):** point `DATABASE_URL` at the
+     *exact same* `${{Postgres.DATABASE_URL}}` reference already used by
+     `andrho-tracker-dashboard`, and set `TRACKER_DATABASE_URL` to that same
+     value too. `accounts`/`refresh_tokens` (this service) and
+     `sites`/`sessions`/`pageviews`/... (WebTracker) are just different tables
+     in the same database — no name collisions, each service's
+     `CREATE TABLE IF NOT EXISTS` migration only touches its own tables. This
+     is the cheapest option (one Postgres plugin total) and is fine at this
+     stage.
+   - **Cleaner (separate logical database, same instance/plugin, a bit more
+     setup):** connect once with `psql` to the shared Postgres and run
+     `CREATE DATABASE andrho_api;`, then build `DATABASE_URL` by hand from the
+     plugin's own variables with the dbname swapped, e.g.
+     `postgresql://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.PGHOST}}:${{Postgres.PGPORT}}/andrho_api`.
+     `TRACKER_DATABASE_URL` stays as `${{Postgres.DATABASE_URL}}` (the
+     original tracker database). Keeps the accounts schema fully isolated from
+     analytics data — nicer long-term, not required to ship today.
+   - Either way: **WebTracker must have deployed (and migrated) at least once
+     before the first signup** — signup fails if the `sites` table doesn't
+     exist yet in whatever database `TRACKER_DATABASE_URL` points at.
+
+3. **Redis — can you reuse the same instance? Yes, safely.** This service only
+   uses Redis for login rate-limiting, under keys prefixed `ratelimit:login:*`
+   — that never collides with WebTracker's own keys (`queue:events`,
+   `sessions:active`, `session:meta:*`). Just set
+   `REDIS_URL=${{Redis.REDIS_URL}}` pointing at the same Redis plugin
+   WebTracker uses. No new plugin needed.
+
+4. **Env vars** to set on this service (Settings → Variables):
+   ```
+   DATABASE_URL=${{Postgres.DATABASE_URL}}          # or the andrho_api-specific URL, see above
+   TRACKER_DATABASE_URL=${{Postgres.DATABASE_URL}}  # always the tracker's database
+   REDIS_URL=${{Redis.REDIS_URL}}
+   JWT_SECRET=<generate one, e.g. `openssl rand -base64 48`>
+   ALLOWED_ORIGINS=https://<your andrho-tracker-dashboard public domain>
+   ```
+   Leave `PORT` unset — Railway injects its own and this service already reads
+   `process.env.PORT` (`config` package) / binds to it.
+
+5. **Generate a public domain** for this service (Settings → Networking →
+   Generate Domain) — `andrho-tracker-dashboard`'s browser-side code
+   (`VITE_ANDRHO_API_URL`) and server-side code (`ANDRHO_API_URL`) both need
+   this URL.
+
+6. **Copy the same `JWT_SECRET` value to `andrho-tracker-dashboard`'s service
+   variables too.** Both services must sign/verify with the identical secret
+   or every request to the dashboard will 401. This is the one variable that
+   *must* match exactly across both services — everything else is independent.
+
 ## Endpoints
 
 All endpoints are under `/auth`. Responses are JSON; errors are always
