@@ -102,7 +102,8 @@ func (h *Handler) Signup(c *gin.Context) {
 		DisplayName:  req.CompanyName,
 		Role:         "owner",
 	}
-	if err := db.CreateUser(ctx, h.Accounts, user); err != nil {
+	user, err = db.CreateUser(ctx, h.Accounts, user)
+	if err != nil {
 		_ = db.DeleteAccount(ctx, h.Accounts, acc.ID) // best-effort: don't leave an owner-less account
 		if errors.Is(err, db.ErrEmailTaken) {
 			respondError(c, http.StatusConflict, "email already registered")

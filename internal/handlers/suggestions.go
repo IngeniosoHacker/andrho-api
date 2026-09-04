@@ -100,7 +100,8 @@ func (h *Handler) CreateSuggestion(c *gin.Context) {
 		ID: uuid.NewString(), AccountID: claims.AccountID, Section: section,
 		Status: "sugerida", Title: title, Body: body, Report: report, CreatedBy: &creator,
 	}
-	if err := db.CreateSuggestion(ctx, h.Accounts, s); err != nil {
+	s, err = db.CreateSuggestion(ctx, h.Accounts, s)
+	if err != nil {
 		respondError(c, http.StatusInternalServerError, "internal error")
 		return
 	}

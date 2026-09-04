@@ -54,17 +54,20 @@ func (s Suggestion) ToPublic() PublicSuggestion {
 	}
 }
 
-// CreateSuggestion inserts a new suggestion row.
-func CreateSuggestion(ctx context.Context, pool *pgxpool.Pool, s Suggestion) error {
-	_, err := pool.Exec(ctx,
+// CreateSuggestion inserts a new suggestion row and fills in s's DB-generated
+// created_at/updated_at before returning it (see CreateUser's doc comment for
+// why -- same reasoning).
+func CreateSuggestion(ctx context.Context, pool *pgxpool.Pool, s Suggestion) (Suggestion, error) {
+	err := pool.QueryRow(ctx,
 		`INSERT INTO suggestions (id, account_id, section, status, title, body, report, created_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		 RETURNING created_at, updated_at`,
 		s.ID, s.AccountID, s.Section, s.Status, s.Title, s.Body, s.Report, s.CreatedBy,
-	)
+	).Scan(&s.CreatedAt, &s.UpdatedAt)
 	if err != nil {
-		return fmt.Errorf("db: create suggestion: %w", err)
+		return Suggestion{}, fmt.Errorf("db: create suggestion: %w", err)
 	}
-	return nil
+	return s, nil
 }
 
 // ListSuggestions returns an account's suggestions, newest first, optionally

@@ -12,22 +12,26 @@ import (
 	"github.com/IngeniosoHacker/andrho-api/internal/models"
 )
 
-// CreateUser inserts a new user row. It returns ErrEmailTaken on a
+// CreateUser inserts a new user row and fills in u's DB-generated
+// created_at/updated_at (both default to now()) before returning it, so
+// callers that echo the result back over the API (e.g. InviteUser) don't
+// hand back a Go zero-value timestamp. Returns ErrEmailTaken on a
 // unique-constraint violation of the email column (mirrors CreateAccount).
-func CreateUser(ctx context.Context, pool *pgxpool.Pool, u models.User) error {
-	_, err := pool.Exec(ctx,
+func CreateUser(ctx context.Context, pool *pgxpool.Pool, u models.User) (models.User, error) {
+	err := pool.QueryRow(ctx,
 		`INSERT INTO users (id, account_id, email, password_hash, display_name, role, invited_by, invite_token_hash, invite_expires_at)
-		 VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, $8, $9)`,
+		 VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, $8, $9)
+		 RETURNING created_at, updated_at`,
 		u.ID, u.AccountID, u.Email, u.PasswordHash, u.DisplayName, u.Role, u.InvitedBy, u.InviteTokenHash, u.InviteExpiresAt,
-	)
+	).Scan(&u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return ErrEmailTaken
+			return models.User{}, ErrEmailTaken
 		}
-		return fmt.Errorf("db: create user: %w", err)
+		return models.User{}, fmt.Errorf("db: create user: %w", err)
 	}
-	return nil
+	return u, nil
 }
 
 // GetUserByEmail fetches a user by its email address.
@@ -172,7 +176,7 @@ func BackfillOwnerUsers(ctx context.Context, pool *pgxpool.Pool, newID func() st
 			ID: newID(), AccountID: a.id, Email: a.email, PasswordHash: a.passwordHash,
 			DisplayName: a.companyName, Role: "owner",
 		}
-		if err := CreateUser(ctx, pool, u); err != nil {
+		if _, err := CreateUser(ctx, pool, u); err != nil {
 			// A duplicate email (another account already has a user with this
 			// email) shouldn't happen in practice -- accounts.email was unique
 			// too -- but don't let one bad row abort the rest of the backfill.

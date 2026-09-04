@@ -113,7 +113,8 @@ func (h *Handler) InviteUser(c *gin.Context) {
 		InviteExpiresAt: &expiresAt,
 	}
 
-	if err := db.CreateUser(ctx, h.Accounts, user); err != nil {
+	user, err = db.CreateUser(ctx, h.Accounts, user)
+	if err != nil {
 		if errors.Is(err, db.ErrEmailTaken) {
 			respondError(c, http.StatusConflict, "that email is already part of a team")
 			return
