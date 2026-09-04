@@ -3,7 +3,11 @@ package models
 
 import "time"
 
-// Account represents a row in the `accounts` table.
+// Account represents a row in the `accounts` table -- a company/tenant that
+// owns a site_id and, since the multi-user migration, one or more `users`
+// rows (see models.User). Email/PasswordHash here are legacy: real logins go
+// through `users` now, these columns are kept only for accounts created
+// before that split (see db.BackfillOwnerUsers).
 type Account struct {
 	ID            string    `json:"id"`
 	Email         string    `json:"email"`
@@ -11,6 +15,7 @@ type Account struct {
 	CompanyName   string    `json:"company_name"`
 	SiteID        string    `json:"site_id"`
 	OdooCompanyID *string   `json:"odoo_company_id,omitempty"`
+	Plan          string    `json:"plan"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }

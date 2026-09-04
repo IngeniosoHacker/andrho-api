@@ -8,25 +8,35 @@ import (
 )
 
 // AccessClaims is the exact JWT claim contract shared with
-// andrho-tracker-dashboard. Do not rename or remove fields without
-// coordinating with that repo.
+// andrho-tracker-dashboard (mirrored in that repo's src/middleware/auth.js).
+// Do not rename or remove fields without coordinating with that repo.
+//
+// `sub` identifies the *user* (a row in `users`), not the account/tenant --
+// that's `account_id` below. This changed with the multi-user/roles
+// migration; anything that used to treat `sub` as the account id must read
+// `account_id` instead now.
 type AccessClaims struct {
-	Sub         string `json:"sub"`
+	Sub         string `json:"sub"`        // user id
+	AccountID   string `json:"account_id"` // account/tenant id
 	Email       string `json:"email"`
 	SiteID      string `json:"site_id"`
 	CompanyName string `json:"company_name"`
+	Role        string `json:"role"` // owner | admin | editor | viewer, see roles.go
 	jwt.RegisteredClaims
 }
 
 // IssueAccessToken creates and signs an HS256 access token carrying the
-// account's identity, site_id and company_name, expiring after ttl.
-func IssueAccessToken(secret string, accountID, email, siteID, companyName string, ttl time.Duration) (string, error) {
+// user's identity, their account's site_id/company_name, and their role,
+// expiring after ttl.
+func IssueAccessToken(secret, userID, accountID, email, siteID, companyName, role string, ttl time.Duration) (string, error) {
 	now := time.Now()
 	claims := AccessClaims{
-		Sub:         accountID,
+		Sub:         userID,
+		AccountID:   accountID,
 		Email:       email,
 		SiteID:      siteID,
 		CompanyName: companyName,
+		Role:        role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),

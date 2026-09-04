@@ -49,7 +49,19 @@ func (h *Handler) Refresh(c *gin.Context) {
 		return
 	}
 
-	acc, err := db.GetAccountByID(ctx, h.Accounts, stored.AccountID)
+	if stored.UserID == "" {
+		// Issued before the multi-user migration (no user_id column yet). The
+		// caller needs to log in again once to get a token issued the new way.
+		respondError(c, http.StatusUnauthorized, "invalid or expired refresh token")
+		return
+	}
+
+	user, err := db.GetUserByID(ctx, h.Accounts, stored.UserID)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "internal error")
+		return
+	}
+	acc, err := db.GetAccountByID(ctx, h.Accounts, user.AccountID)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "internal error")
 		return
@@ -61,7 +73,7 @@ func (h *Handler) Refresh(c *gin.Context) {
 		return
 	}
 
-	tokens, err := h.issueTokenPair(ctx, acc)
+	tokens, err := h.issueTokenPair(ctx, user, acc)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "internal error")
 		return

@@ -17,10 +17,11 @@ type tokenPair struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
-// issueTokenPair mints a new access token (JWT) and a new opaque refresh
-// token, persisting only the refresh token's SHA-256 hash.
-func (h *Handler) issueTokenPair(ctx context.Context, acc models.Account) (tokenPair, error) {
-	accessToken, err := auth.IssueAccessToken(h.Cfg.JWTSecret, acc.ID, acc.Email, acc.SiteID, acc.CompanyName, h.accessTTL())
+// issueTokenPair mints a new access token (JWT, carrying user+role+account
+// identity) and a new opaque refresh token, persisting only the refresh
+// token's SHA-256 hash.
+func (h *Handler) issueTokenPair(ctx context.Context, user models.User, acc models.Account) (tokenPair, error) {
+	accessToken, err := auth.IssueAccessToken(h.Cfg.JWTSecret, user.ID, acc.ID, user.Email, acc.SiteID, acc.CompanyName, user.Role, h.accessTTL())
 	if err != nil {
 		return tokenPair{}, fmt.Errorf("issue access token: %w", err)
 	}
@@ -32,7 +33,7 @@ func (h *Handler) issueTokenPair(ctx context.Context, acc models.Account) (token
 
 	hash := auth.HashRefreshToken(refreshToken)
 	expiresAt := time.Now().Add(h.refreshTTL())
-	if err := db.CreateRefreshToken(ctx, h.Accounts, hash, acc.ID, expiresAt); err != nil {
+	if err := db.CreateRefreshToken(ctx, h.Accounts, hash, acc.ID, user.ID, expiresAt); err != nil {
 		return tokenPair{}, fmt.Errorf("persist refresh token: %w", err)
 	}
 

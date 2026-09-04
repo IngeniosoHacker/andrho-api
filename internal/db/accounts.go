@@ -39,15 +39,36 @@ func CreateAccount(ctx context.Context, pool *pgxpool.Pool, a models.Account) er
 // GetAccountByEmail fetches an account by its email address.
 func GetAccountByEmail(ctx context.Context, pool *pgxpool.Pool, email string) (models.Account, error) {
 	return scanAccount(pool.QueryRow(ctx,
-		`SELECT id, email, password_hash, company_name, site_id, odoo_company_id, created_at, updated_at
+		`SELECT id, email, password_hash, company_name, site_id, odoo_company_id, plan, created_at, updated_at
 		 FROM accounts WHERE email = $1`, email))
 }
 
 // GetAccountByID fetches an account by its UUID (as a string).
 func GetAccountByID(ctx context.Context, pool *pgxpool.Pool, id string) (models.Account, error) {
 	return scanAccount(pool.QueryRow(ctx,
-		`SELECT id, email, password_hash, company_name, site_id, odoo_company_id, created_at, updated_at
+		`SELECT id, email, password_hash, company_name, site_id, odoo_company_id, plan, created_at, updated_at
 		 FROM accounts WHERE id = $1`, id))
+}
+
+// DeleteAccount removes an account row (cascades to its users/refresh_tokens/
+// suggestions/account_events via FK ON DELETE CASCADE). Only used today as a
+// best-effort rollback in Signup when creating the account's first user fails.
+func DeleteAccount(ctx context.Context, pool *pgxpool.Pool, id string) error {
+	_, err := pool.Exec(ctx, `DELETE FROM accounts WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("db: delete account: %w", err)
+	}
+	return nil
+}
+
+// UpdateAccountPlan sets an account's plan. Purely a feature-gating flag --
+// no billing/payment processor is wired, this never charges anything.
+func UpdateAccountPlan(ctx context.Context, pool *pgxpool.Pool, accountID, plan string) error {
+	_, err := pool.Exec(ctx, `UPDATE accounts SET plan = $2, updated_at = now() WHERE id = $1`, accountID, plan)
+	if err != nil {
+		return fmt.Errorf("db: update account plan: %w", err)
+	}
+	return nil
 }
 
 // SiteIDExists reports whether a given site_id is already taken.
@@ -62,7 +83,7 @@ func SiteIDExists(ctx context.Context, pool *pgxpool.Pool, siteID string) (bool,
 
 func scanAccount(row pgx.Row) (models.Account, error) {
 	var a models.Account
-	err := row.Scan(&a.ID, &a.Email, &a.PasswordHash, &a.CompanyName, &a.SiteID, &a.OdooCompanyID, &a.CreatedAt, &a.UpdatedAt)
+	err := row.Scan(&a.ID, &a.Email, &a.PasswordHash, &a.CompanyName, &a.SiteID, &a.OdooCompanyID, &a.Plan, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return models.Account{}, ErrNotFound

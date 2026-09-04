@@ -24,7 +24,9 @@ type loginResponse struct {
 }
 
 // Login handles POST /auth/login. Rate limiting is applied by the
-// middleware.LoginRateLimit middleware mounted ahead of this handler.
+// middleware.LoginRateLimit middleware mounted ahead of this handler. Auth is
+// by *user* (email/password on the `users` table) since the multi-user
+// migration -- a pending invite (password_hash still NULL) can't log in yet.
 func (h *Handler) Login(c *gin.Context) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -36,7 +38,7 @@ func (h *Handler) Login(c *gin.Context) {
 
 	ctx := c.Request.Context()
 
-	acc, err := db.GetAccountByEmail(ctx, h.Accounts, req.Email)
+	user, err := db.GetUserByEmail(ctx, h.Accounts, req.Email)
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			respondError(c, http.StatusUnauthorized, "invalid email or password")
@@ -46,12 +48,18 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
-	if !auth.VerifyPassword(acc.PasswordHash, req.Password) {
+	if user.PasswordHash == "" || !auth.VerifyPassword(user.PasswordHash, req.Password) {
 		respondError(c, http.StatusUnauthorized, "invalid email or password")
 		return
 	}
 
-	tokens, err := h.issueTokenPair(ctx, acc)
+	acc, err := db.GetAccountByID(ctx, h.Accounts, user.AccountID)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	tokens, err := h.issueTokenPair(ctx, user, acc)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "internal error")
 		return

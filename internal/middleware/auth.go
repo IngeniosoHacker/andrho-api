@@ -44,3 +44,22 @@ func RequireAuth(jwtSecret string) gin.HandlerFunc {
 func respondUnauthorized(c *gin.Context, message string) {
 	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": message})
 }
+
+// RequireRole must run after RequireAuth. It aborts with 403 unless the
+// authenticated user's role meets or exceeds min (see auth.HasAtLeast /
+// internal/auth/roles.go for the hierarchy).
+func RequireRole(min string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		raw, ok := c.Get(AccountContextKey)
+		if !ok {
+			respondUnauthorized(c, "missing authorization")
+			return
+		}
+		claims, ok := raw.(*auth.AccessClaims)
+		if !ok || !auth.HasAtLeast(claims.Role, min) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+			return
+		}
+		c.Next()
+	}
+}

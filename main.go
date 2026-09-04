@@ -6,6 +6,8 @@ import (
 	"context"
 	"log"
 
+	"github.com/google/uuid"
+
 	"github.com/IngeniosoHacker/andrho-api/internal/config"
 	"github.com/IngeniosoHacker/andrho-api/internal/db"
 	"github.com/IngeniosoHacker/andrho-api/internal/handlers"
@@ -30,6 +32,16 @@ func main() {
 
 	if err := db.Migrate(ctx, accountsPool); err != nil {
 		log.Fatalf("main: migrate accounts db: %v", err)
+	}
+
+	// One-time-per-account backfill: every account created before the
+	// multi-user/roles migration gets an 'owner' user row generated from its
+	// legacy email/password_hash. Idempotent, safe on every boot (see
+	// db.BackfillOwnerUsers).
+	if n, err := db.BackfillOwnerUsers(ctx, accountsPool, uuid.NewString); err != nil {
+		log.Fatalf("main: backfill owner users: %v", err)
+	} else if n > 0 {
+		log.Printf("main: backfilled %d owner user(s) for pre-existing accounts", n)
 	}
 
 	trackerPool, err := trackerdb.New(ctx, cfg.TrackerDatabaseURL)

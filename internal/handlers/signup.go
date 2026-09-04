@@ -30,7 +30,13 @@ type signupResponse struct {
 	Account      models.PublicAccount `json:"account"`
 }
 
-// Signup handles POST /auth/signup.
+// Signup handles POST /auth/signup: creates the account (company/tenant) and
+// its first user, with role 'owner'. andrho-api doesn't wrap this in a DB
+// transaction (nothing else in this codebase uses one yet, and pgxpool.Pool
+// vs pgx.Tx would need a shared interface across every db/*.go function to
+// do it properly) -- if user creation fails after the account was created,
+// we best-effort delete the orphaned account rather than leave a
+// company-with-no-owner around.
 func (h *Handler) Signup(c *gin.Context) {
 	var req signupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -76,9 +82,28 @@ func (h *Handler) Signup(c *gin.Context) {
 		PasswordHash: passwordHash,
 		CompanyName:  req.CompanyName,
 		SiteID:       siteID,
+		Plan:         "base",
 	}
 
 	if err := db.CreateAccount(ctx, h.Accounts, acc); err != nil {
+		if errors.Is(err, db.ErrEmailTaken) {
+			respondError(c, http.StatusConflict, "email already registered")
+			return
+		}
+		respondError(c, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	user := models.User{
+		ID:           uuid.NewString(),
+		AccountID:    acc.ID,
+		Email:        req.Email,
+		PasswordHash: passwordHash,
+		DisplayName:  req.CompanyName,
+		Role:         "owner",
+	}
+	if err := db.CreateUser(ctx, h.Accounts, user); err != nil {
+		_ = db.DeleteAccount(ctx, h.Accounts, acc.ID) // best-effort: don't leave an owner-less account
 		if errors.Is(err, db.ErrEmailTaken) {
 			respondError(c, http.StatusConflict, "email already registered")
 			return
@@ -97,11 +122,13 @@ func (h *Handler) Signup(c *gin.Context) {
 		return
 	}
 
-	tokens, err := h.issueTokenPair(ctx, acc)
+	tokens, err := h.issueTokenPair(ctx, user, acc)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "internal error")
 		return
 	}
+
+	_ = db.LogEvent(ctx, h.Accounts, uuid.NewString(), acc.ID, &user.ID, "account_created", "Cuenta creada")
 
 	c.JSON(http.StatusCreated, signupResponse{
 		AccessToken:  tokens.AccessToken,
