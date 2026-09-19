@@ -42,6 +42,10 @@ func New(h *handlers.Handler) *gin.Engine {
 		authGroup.GET("/me", requireAuth, h.Me)
 	}
 
+	// Public, unauthenticated: andrho's pre-launch waiting-list survey (see
+	// andrho/src/components/sections/MissionForm.jsx).
+	r.POST("/waitlist", middleware.WaitlistRateLimit(h.Redis), h.CreateWaitlistSubmission)
+
 	// Team/plan management -- the dashboard's "Configuración" tab. Every
 	// route requires auth; user/plan *mutations* additionally require a
 	// minimum role (see internal/auth/roles.go).

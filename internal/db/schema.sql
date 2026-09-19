@@ -94,3 +94,31 @@ CREATE TABLE IF NOT EXISTS account_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_account_events_account ON account_events (account_id, created_at DESC);
+
+-- Pre-launch waiting-list survey (andrho's "MissionForm" -- see that repo's
+-- src/components/sections/MissionForm.jsx and PRODUCT.md). Public, unauthenticated:
+-- anyone can complete the survey, no account exists yet. Deliberately its own
+-- table rather than reusing `accounts` -- these people haven't signed up for
+-- anything yet, they're answering a lead-gen questionnaire, and the shape
+-- (sectors array, satisfaction rating, free-text answers) doesn't fit the
+-- accounts schema at all.
+CREATE TABLE IF NOT EXISTS waitlist_submissions (
+  id                  UUID PRIMARY KEY,
+  name                TEXT NOT NULL,
+  company             TEXT NOT NULL,
+  email               TEXT NOT NULL,
+  sectors             TEXT[] NOT NULL DEFAULT '{}',
+  company_size        TEXT NOT NULL DEFAULT '',
+  sales_method        TEXT NOT NULL DEFAULT '',
+  has_website         TEXT NOT NULL DEFAULT '',
+  website_url         TEXT NOT NULL DEFAULT '',
+  restaurant_expiry   TEXT NOT NULL DEFAULT '',
+  management          TEXT NOT NULL DEFAULT '',
+  satisfaction        SMALLINT NOT NULL DEFAULT 0,
+  satisfaction_reason TEXT NOT NULL DEFAULT '',
+  improvement         TEXT NOT NULL DEFAULT '',
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_waitlist_submissions_created ON waitlist_submissions (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_waitlist_submissions_email ON waitlist_submissions (email);
