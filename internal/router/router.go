@@ -42,9 +42,15 @@ func New(h *handlers.Handler) *gin.Engine {
 		authGroup.GET("/me", requireAuth, h.Me)
 	}
 
-	// Public, unauthenticated: andrho's pre-launch waiting-list survey (see
-	// andrho/src/components/sections/MissionForm.jsx).
+	// Public, unauthenticated: andrho's pre-launch waiting-list survey
+	// (andrho's waitlist.html). /recommendation matches the answers so far to
+	// a plan (internal/recommend) before the survey's plan question.
 	r.POST("/waitlist", middleware.WaitlistRateLimit(h.Redis), h.CreateWaitlistSubmission)
+	r.POST("/waitlist/recommendation", middleware.RecommendationRateLimit(h.Redis), h.RecommendPlan)
+
+	// Public: the development progress shown on andrho's landing -- commits
+	// of every AndRho repo, merged and cached (internal/progress).
+	r.GET("/progress", h.Progress)
 
 	// Team/plan management -- the dashboard's "Configuración" tab. Every
 	// route requires auth; user/plan *mutations* additionally require a

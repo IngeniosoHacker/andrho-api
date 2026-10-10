@@ -139,7 +139,10 @@ ALTER TABLE waitlist_submissions
   ADD COLUMN IF NOT EXISTS modules           TEXT[] NOT NULL DEFAULT '{}',
   ADD COLUMN IF NOT EXISTS expectations      TEXT[] NOT NULL DEFAULT '{}',
   ADD COLUMN IF NOT EXISTS plan_interest     TEXT   NOT NULL DEFAULT '',
-  ADD COLUMN IF NOT EXISTS suggested_modules TEXT[] NOT NULL DEFAULT '{}';
+  ADD COLUMN IF NOT EXISTS suggested_modules TEXT[] NOT NULL DEFAULT '{}',
+  -- The plan internal/recommend matched to the answers; compared with
+  -- plan_interest it tells how often people take the recommendation.
+  ADD COLUMN IF NOT EXISTS recommended_plan  TEXT   NOT NULL DEFAULT '';
 
 -- Feature-priority queries ("which modules do people ask for most") unnest
 -- these arrays; GIN keeps `modules @> '{inventario}'` style filters cheap.

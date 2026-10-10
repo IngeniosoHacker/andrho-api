@@ -20,6 +20,8 @@ type Config struct {
 	JWTAccessTTLMinutes int
 	JWTRefreshTTLDays   int
 	AllowedOrigins      []string // empty slice or containing "*" means "allow all"
+	GitHubToken         string   // optional; raises GitHub's rate limit for GET /progress
+	GitHubRepos         []string // "owner/name" repos merged by GET /progress
 }
 
 // Load reads a .env file if present (silently ignored when missing, since in
@@ -38,6 +40,8 @@ func Load() *Config {
 		JWTAccessTTLMinutes: getEnvInt("JWT_ACCESS_TTL_MINUTES", 30),
 		JWTRefreshTTLDays:   getEnvInt("JWT_REFRESH_TTL_DAYS", 30),
 		AllowedOrigins:      parseOrigins(getEnv("ALLOWED_ORIGINS", "*")),
+		GitHubToken:         getEnv("GITHUB_TOKEN", ""),
+		GitHubRepos:         parseOrigins(getEnv("GITHUB_REPOS", "IngeniosoHacker/andrho,IngeniosoHacker/andrho-tracker-dashboard,IngeniosoHacker/andrho-api")),
 	}
 
 	return cfg

@@ -69,18 +69,17 @@ func LoginRateLimit(rdb *redis.Client) gin.HandlerFunc {
 	}
 }
 
-// WaitlistRateLimit throttles POST /waitlist per IP using the same
-// fixed-window counter approach as LoginRateLimit: this endpoint is public
-// and unauthenticated, open to the whole internet, so it needs its own cap
-// independent of any account/email.
-func WaitlistRateLimit(rdb *redis.Client) gin.HandlerFunc {
+// RateLimit throttles a route per IP with the same fixed-window counter as
+// LoginRateLimit, under the key "ratelimit:<name>:<ip>". For public,
+// unauthenticated endpoints open to the whole internet.
+func RateLimit(rdb *redis.Client, name string, max int64, window time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if rdb == nil {
 			c.Next()
 			return
 		}
 
-		key := "ratelimit:waitlist:" + c.ClientIP()
+		key := "ratelimit:" + name + ":" + c.ClientIP()
 
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
 		defer cancel()
@@ -92,14 +91,25 @@ func WaitlistRateLimit(rdb *redis.Client) gin.HandlerFunc {
 			return
 		}
 		if count == 1 {
-			rdb.Expire(ctx, key, waitlistRateLimitWindow)
+			rdb.Expire(ctx, key, window)
 		}
 
-		if count > waitlistRateLimitMax {
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many submissions, please try again later"})
+		if count > max {
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many requests, please try again later"})
 			return
 		}
 
 		c.Next()
 	}
+}
+
+// WaitlistRateLimit caps POST /waitlist submissions per IP.
+func WaitlistRateLimit(rdb *redis.Client) gin.HandlerFunc {
+	return RateLimit(rdb, "waitlist", waitlistRateLimitMax, waitlistRateLimitWindow)
+}
+
+// RecommendationRateLimit caps POST /waitlist/recommendation per IP. It's a
+// pure computation, so the cap is generous: people go back and forth.
+func RecommendationRateLimit(rdb *redis.Client) gin.HandlerFunc {
+	return RateLimit(rdb, "recommendation", 120, time.Hour)
 }

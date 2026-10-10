@@ -32,5 +32,6 @@ type WaitlistSubmission struct {
 	Expectations       []string
 	PlanInterest       string
 	SuggestedModules   []string
+	RecommendedPlan    string
 	CreatedAt          time.Time
 }

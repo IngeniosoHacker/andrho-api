@@ -54,6 +54,8 @@ already owns and migrates its own schema.
 | `JWT_ACCESS_TTL_MINUTES`    | `30`    | Access token lifetime.                                                |
 | `JWT_REFRESH_TTL_DAYS`      | `30`    | Refresh token lifetime.                                               |
 | `ALLOWED_ORIGINS`           | `*`     | CSV of allowed CORS origins for `/auth/*`. `*` or unset allows every origin (dev default — **restrict this to `andrho-tracker-dashboard`'s real domain in production**). |
+| `GITHUB_REPOS`              | the 3 AndRho repos | CSV of `owner/name` repos merged by `GET /progress`. |
+| `GITHUB_TOKEN`              | —       | Optional GitHub token for `GET /progress` (lifts the 60/hour anonymous limit). |
 
 In development, a `.env` file is loaded automatically (via `godotenv`) if
 present; its absence is not an error. In production (Railway), env vars are
@@ -208,6 +210,39 @@ curl http://localhost:8080/auth/me -H "Authorization: Bearer <access_token>"
 fresh from the database (keyed by the JWT's `sub`) rather than trusting the
 token's claims verbatim, so it reflects any changes made after the token was
 issued.
+
+### `POST /waitlist`
+
+Public, rate-limited (5/hour per IP). Stores one completed run of andrho's
+waiting-list survey (`waitlist.html`). The API matches the answers to a plan
+(`internal/recommend`) and stores `recommended_plan` and `suggested_modules`
+itself; the response carries them for the survey's last screen:
+
+```json
+{ "id": "…", "recommendation": { "plan": "crecer", "scores": {…}, "reasons": ["…"], "suggestedModules": ["analitica", "…"] } }
+```
+
+### `POST /waitlist/recommendation`
+
+Public, rate-limited (120/hour per IP), stores nothing. Same body as
+`POST /waitlist` (any subset of the answers); returns the `recommendation`
+object above. The survey calls it before its plan question to put the
+"Recomendado para ti" badge on the matching plan.
+
+Matching (`internal/recommend`): the answers become a few signals (wants
+growth, wants order/control, runs on paper, scattered data, company size,
+breadth of areas…), each plan has a weight per signal, the highest weighted
+sum wins (ties go to the broader plan) and the strongest signals become the
+`reasons`. Tuned with the profiles in `recommend_test.go`.
+
+### `GET /progress`
+
+Public. AndRho's development progress for the landing: the repos in
+`GITHUB_REPOS` merged into one payload (`totalCommits`, `commitsPerWeek`,
+per-repo counts, combined `contributors`, and the 10 latest commits across
+all repos in `recent`). Cached in Redis for 10 minutes; if GitHub fails, the
+last good copy (kept 7 days) is served. Set `GITHUB_TOKEN` (no scopes needed)
+to lift GitHub's 60 requests/hour anonymous limit.
 
 ## JWT contract
 
