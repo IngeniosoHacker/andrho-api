@@ -20,5 +20,17 @@ type WaitlistSubmission struct {
 	Satisfaction       int
 	SatisfactionReason string
 	Improvement        string
+	Phone              string
+	SalesMethods       []string
+	SectorAnswers      map[string]string
+	UnsoldHandling     string
+	SocialNetworks     []string
+	MessagingApps      []string
+	CurrentSoftware    string
+	PainPoints         []string
+	Modules            []string
+	Expectations       []string
+	PlanInterest       string
+	SuggestedModules   []string
 	CreatedAt          time.Time
 }

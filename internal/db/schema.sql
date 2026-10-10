@@ -122,3 +122,26 @@ CREATE TABLE IF NOT EXISTS waitlist_submissions (
 
 CREATE INDEX IF NOT EXISTS idx_waitlist_submissions_created ON waitlist_submissions (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_waitlist_submissions_email ON waitlist_submissions (email);
+
+-- Waiting-list survey v2 (andrho's waitlist.html wizard, see
+-- waitinglist.md): one question per screen, sector-specific questions and the
+-- modules AndRho suggests from the answers. Added with ADD COLUMN IF NOT
+-- EXISTS so existing rows keep working; v1 columns stay as they are.
+ALTER TABLE waitlist_submissions
+  ADD COLUMN IF NOT EXISTS phone             TEXT   NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS sales_methods     TEXT[] NOT NULL DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS sector_answers    JSONB  NOT NULL DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS unsold_handling   TEXT   NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS social_networks   TEXT[] NOT NULL DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS messaging_apps    TEXT[] NOT NULL DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS current_software  TEXT   NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS pain_points       TEXT[] NOT NULL DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS modules           TEXT[] NOT NULL DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS expectations      TEXT[] NOT NULL DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS plan_interest     TEXT   NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS suggested_modules TEXT[] NOT NULL DEFAULT '{}';
+
+-- Feature-priority queries ("which modules do people ask for most") unnest
+-- these arrays; GIN keeps `modules @> '{inventario}'` style filters cheap.
+CREATE INDEX IF NOT EXISTS idx_waitlist_submissions_modules ON waitlist_submissions USING GIN (modules);
+CREATE INDEX IF NOT EXISTS idx_waitlist_submissions_expectations ON waitlist_submissions USING GIN (expectations);
