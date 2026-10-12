@@ -117,6 +117,8 @@ func New(h *handlers.Handler) *gin.Engine {
 		erpGroup.GET("/leads", h.ERPLeads)
 		erpGroup.GET("/branches", h.ERPBranches)
 		erpGroup.GET("/history", h.ERPHistory)
+		erpGroup.GET("/imports", h.ListImports)
+		erpGroup.POST("/import", middleware.RequireRole("editor"), h.ImportERP)
 	}
 
 	// AndRho's own team (staff table): admins see AndRho's metrics,

@@ -274,3 +274,18 @@ CREATE TABLE IF NOT EXISTS creator_tasks (
 
 CREATE INDEX IF NOT EXISTS idx_creator_tasks_status ON creator_tasks (status, created_at);
 CREATE INDEX IF NOT EXISTS idx_creator_tasks_creator ON creator_tasks (creator_id, status);
+
+-- Data migrations into the account's ERP (internal/etl): one row per run,
+-- dry runs included, with what it did.
+CREATE TABLE IF NOT EXISTS etl_runs (
+  id          UUID PRIMARY KEY,
+  account_id  UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  user_id     UUID REFERENCES users(id) ON DELETE SET NULL,
+  kind        TEXT NOT NULL,
+  dry_run     BOOLEAN NOT NULL,
+  filename    TEXT NOT NULL DEFAULT '',
+  report      JSONB NOT NULL DEFAULT '{}',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_etl_runs_account ON etl_runs (account_id, created_at DESC);

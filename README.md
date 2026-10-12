@@ -311,6 +311,16 @@ first, the password stored encrypted, the URL must be public unless
 | `GET /erp/branches` | warehouses and points of sale: open or not, today's sales |
 | `GET /erp/history?category=ventas\|inventario\|clientes` | the operations, newest first |
 
+`POST /erp/import` (editor+) migrates data from the business' previous
+system into its Odoo (`internal/etl`): `{kind: products|customers, filename,
+dry_run, rows: [{name, code, price, cost, qty, category, barcode} |
+{name, email, phone, vat, street, city, company}]}`, up to 5000 rows. Transform
+normalizes amounts (`Q1,250.50`, `1.250,50`), validates names, numbers and
+emails, and de-duplicates (by code, email or name; the last row wins). A dry
+run returns the report and a preview without writing; otherwise Load creates
+or updates products (with stock as an inventory adjustment and categories)
+and customers. `GET /erp/imports` lists the runs (`etl_runs`).
+
 ### Staff: `/admin/*` and `/creators/*`
 
 For AndRho's own team (`staff` table, from `ANDRHO_ADMINS` /
