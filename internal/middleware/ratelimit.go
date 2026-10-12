@@ -113,3 +113,14 @@ func WaitlistRateLimit(rdb *redis.Client) gin.HandlerFunc {
 func RecommendationRateLimit(rdb *redis.Client) gin.HandlerFunc {
 	return RateLimit(rdb, "recommendation", 120, time.Hour)
 }
+
+// AnalyzerRateLimit caps POST /analyzer per IP: cheap, called as the
+// signup's answers change.
+func AnalyzerRateLimit(rdb *redis.Client) gin.HandlerFunc {
+	return RateLimit(rdb, "analyzer", 120, time.Hour)
+}
+
+// DescribeRateLimit caps POST /analyzer/describe per IP: it may call Claude.
+func DescribeRateLimit(rdb *redis.Client) gin.HandlerFunc {
+	return RateLimit(rdb, "describe", 20, time.Hour)
+}

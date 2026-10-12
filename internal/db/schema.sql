@@ -175,3 +175,22 @@ CREATE TABLE IF NOT EXISTS articles (
 );
 
 CREATE INDEX IF NOT EXISTS idx_articles_account ON articles (account_id, status, published_at DESC);
+
+-- AI tokens spent, per call (internal/ai). `source` says what for:
+-- analyzer (signup analysis), insights (the dashboard's AndRho panel),
+-- whatsapp (the WhatsApp integration), development (imported from the
+-- team's own AI usage). account_id is empty for calls before an account
+-- exists. Read by the staff-only Tokens Usage view.
+CREATE TABLE IF NOT EXISTS token_usage (
+  id            BIGSERIAL PRIMARY KEY,
+  source        TEXT NOT NULL,
+  account_id    UUID REFERENCES accounts(id) ON DELETE SET NULL,
+  model         TEXT NOT NULL DEFAULT '',
+  input_tokens  INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  note          TEXT NOT NULL DEFAULT '',
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_token_usage_time ON token_usage (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_token_usage_source ON token_usage (source, created_at DESC);

@@ -56,6 +56,8 @@ already owns and migrates its own schema.
 | `ALLOWED_ORIGINS`           | `*`     | CSV of allowed CORS origins for `/auth/*`. `*` or unset allows every origin (dev default — **restrict this to `andrho-tracker-dashboard`'s real domain in production**). |
 | `GITHUB_REPOS`              | the 3 AndRho repos | CSV of `owner/name` repos merged by `GET /progress`. |
 | `GITHUB_TOKEN`              | —       | Optional GitHub token for `GET /progress` (lifts the 60/hour anonymous limit). |
+| `ANTHROPIC_API_KEY`         | —       | Optional. Enables Claude (`internal/ai`): the Analyzer's description reading, and later the dashboard's AndRho panel. Without it, rule-based fallbacks. |
+| `ANTHROPIC_MODEL`           | `claude-sonnet-5-5` | Model for those calls. |
 
 In development, a `.env` file is loaded automatically (via `godotenv`) if
 present; its absence is not an error. In production (Railway), env vars are
@@ -243,6 +245,25 @@ per-repo counts, combined `contributors`, and the 10 latest commits across
 all repos in `recent`). Cached in Redis for 10 minutes; if GitHub fails, the
 last good copy (kept 7 days) is served. Set `GITHUB_TOKEN` (no scopes needed)
 to lift GitHub's 60 requests/hour anonymous limit.
+
+### `POST /analyzer` and `POST /analyzer/describe`
+
+Public, rate-limited per IP (120/h and 20/h). The Analyzer
+(`internal/analyzer`) turns what a business tells us into the AndRho setup
+it needs. `/analyzer` takes the survey's answers (same body as
+`/waitlist/recommendation`); `/analyzer/describe` takes
+`{ "description": "..." }`, a paragraph about the business, and reads it
+into answers with Claude (`ANTHROPIC_API_KEY`) or, without it, keyword
+rules (`description.source` says which). Both return:
+
+- `needs`: every module the business needs, most important first.
+- `packages`: Despegue (3 modules), En Órbita (6) and Galáctico (all, plus
+  WhatsApp and Creators), each with its core, the modules it includes,
+  the ones it leaves out (`missing`) and a `pitch`.
+- `recommended`: always `galactico`, the package put forward;
+  `best_fit` + `reasons`: the plan that strictly fits the answers.
+
+Every Claude call records its tokens in `token_usage` (source `analyzer`).
 
 ### Articles: `GET|POST /articles`, `GET|PUT|DELETE /articles/:id`
 

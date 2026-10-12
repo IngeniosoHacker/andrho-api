@@ -22,6 +22,8 @@ type Config struct {
 	AllowedOrigins      []string // empty slice or containing "*" means "allow all"
 	GitHubToken         string   // optional; raises GitHub's rate limit for GET /progress
 	GitHubRepos         []string // "owner/name" repos merged by GET /progress
+	AnthropicAPIKey     string   // optional; enables Claude (internal/ai)
+	AnthropicModel      string
 }
 
 // Load reads a .env file if present (silently ignored when missing, since in
@@ -42,6 +44,8 @@ func Load() *Config {
 		AllowedOrigins:      parseOrigins(getEnv("ALLOWED_ORIGINS", "*")),
 		GitHubToken:         getEnv("GITHUB_TOKEN", ""),
 		GitHubRepos:         parseOrigins(getEnv("GITHUB_REPOS", "IngeniosoHacker/andrho,IngeniosoHacker/andrho-tracker-dashboard,IngeniosoHacker/andrho-api")),
+		AnthropicAPIKey:     getEnv("ANTHROPIC_API_KEY", ""),
+		AnthropicModel:      getEnv("ANTHROPIC_MODEL", "claude-sonnet-5-5"),
 	}
 
 	return cfg
