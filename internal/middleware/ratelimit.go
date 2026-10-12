@@ -124,3 +124,9 @@ func AnalyzerRateLimit(rdb *redis.Client) gin.HandlerFunc {
 func DescribeRateLimit(rdb *redis.Client) gin.HandlerFunc {
 	return RateLimit(rdb, "describe", 20, time.Hour)
 }
+
+// RegisterRateLimit caps POST /auth/register per IP: each one creates an
+// account and may start services on the VPS.
+func RegisterRateLimit(rdb *redis.Client) gin.HandlerFunc {
+	return RateLimit(rdb, "register", 10, time.Hour)
+}

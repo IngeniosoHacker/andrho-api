@@ -35,6 +35,8 @@ func New(h *handlers.Handler) *gin.Engine {
 	authGroup := r.Group("/auth")
 	{
 		authGroup.POST("/signup", h.Signup)
+		// Signup with setup: package, modules, brand and provisioning.
+		authGroup.POST("/register", middleware.RegisterRateLimit(h.Redis), h.Register)
 		authGroup.POST("/login", middleware.LoginRateLimit(h.Redis), h.Login)
 		authGroup.POST("/refresh", h.Refresh)
 		authGroup.POST("/logout", h.Logout)
@@ -71,6 +73,8 @@ func New(h *handlers.Handler) *gin.Engine {
 		accountGroup.GET("/plan", h.GetPlan)
 		accountGroup.PATCH("/plan", middleware.RequireRole("owner"), h.UpdatePlan)
 		accountGroup.GET("/events", h.ListEvents)
+		accountGroup.GET("/provisioning", h.AccountProvisioning)
+		accountGroup.GET("/logo", h.AccountLogo)
 	}
 
 	// Suggestions -- the per-view "Sugerencias" button and the global

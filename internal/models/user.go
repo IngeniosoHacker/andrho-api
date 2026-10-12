@@ -54,4 +54,5 @@ type MeResponse struct {
 	CompanyName string `json:"company_name"`
 	SiteID      string `json:"site_id"`
 	Plan        string `json:"plan"`
+	StaffRole   string `json:"staff_role,omitempty"` // AndRho's own team: admin | creator
 }

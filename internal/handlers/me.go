@@ -52,6 +52,12 @@ func (h *Handler) Me(c *gin.Context) {
 		return
 	}
 
+	staffRole, err := db.StaffRole(ctx, h.Accounts, user.ID)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "internal error")
+		return
+	}
+
 	c.JSON(http.StatusOK, models.MeResponse{
 		UserID:      user.ID,
 		AccountID:   acc.ID,
@@ -61,5 +67,6 @@ func (h *Handler) Me(c *gin.Context) {
 		CompanyName: acc.CompanyName,
 		SiteID:      acc.SiteID,
 		Plan:        acc.Plan,
+		StaffRole:   staffRole,
 	})
 }

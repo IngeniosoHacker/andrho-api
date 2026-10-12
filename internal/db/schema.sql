@@ -194,3 +194,83 @@ CREATE TABLE IF NOT EXISTS token_usage (
 
 CREATE INDEX IF NOT EXISTS idx_token_usage_time ON token_usage (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_token_usage_source ON token_usage (source, created_at DESC);
+
+-- AndRho's own team, separate from customer roles: 'admin' sees AndRho's
+-- internal metrics (waitlist, minigame, token usage); 'creator' builds
+-- customer sites (creator_tasks). Synced at boot from ANDRHO_ADMINS /
+-- ANDRHO_CREATORS (emails), see db.SyncStaff.
+CREATE TABLE IF NOT EXISTS staff (
+  user_id    UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  role       TEXT NOT NULL, -- admin | creator
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- What the signup learned about the business (POST /auth/register): the
+-- setup path, the survey answers or the description, the modules picked
+-- and the brand. One row per account.
+CREATE TABLE IF NOT EXISTS account_setup (
+  account_id     UUID PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+  setup          TEXT NOT NULL DEFAULT 'rapida', -- rapida | personalizada
+  answers        JSONB NOT NULL DEFAULT '{}',
+  description    TEXT NOT NULL DEFAULT '',
+  modules        TEXT[] NOT NULL DEFAULT '{}',
+  phone          TEXT NOT NULL DEFAULT '',
+  brand_essence  TEXT NOT NULL DEFAULT '',
+  brand_help     BOOLEAN NOT NULL DEFAULT false, -- has no brand, wants AndRho to propose one
+  logo_type      TEXT NOT NULL DEFAULT '',
+  logo           BYTEA,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- One row per thing the signup sets up for an account (internal/provision):
+-- kind erp (Odoo + PostgreSQL on the VPS), whatsapp (registration in the
+-- WhatsApp solution), website (a Creators task). status: pendiente |
+-- en_proceso | listo | esperando_vps | esperando_meta | error.
+CREATE TABLE IF NOT EXISTS provisioning_jobs (
+  id          UUID PRIMARY KEY,
+  account_id  UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  kind        TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'pendiente',
+  detail      TEXT NOT NULL DEFAULT '',
+  input       JSONB NOT NULL DEFAULT '{}',
+  result      JSONB NOT NULL DEFAULT '{}',
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_provisioning_jobs_account ON provisioning_jobs (account_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_provisioning_jobs_status ON provisioning_jobs (status);
+
+-- The account's Odoo, as the VPS script reported it. The password is
+-- encrypted with SECRETS_KEY (internal/secret), never stored in clear.
+CREATE TABLE IF NOT EXISTS odoo_connections (
+  account_id      UUID PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+  url             TEXT NOT NULL,
+  db_name         TEXT NOT NULL,
+  login           TEXT NOT NULL,
+  secret          BYTEA NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Work for Creators (designers and developers on AndRho): a customer's
+-- website, brand, etc. status: abierta -> aceptada -> entregada.
+CREATE TABLE IF NOT EXISTS creator_tasks (
+  id           UUID PRIMARY KEY,
+  account_id   UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  kind         TEXT NOT NULL, -- website | brand | ...
+  title        TEXT NOT NULL,
+  brief        JSONB NOT NULL DEFAULT '{}',
+  status       TEXT NOT NULL DEFAULT 'abierta',
+  creator_id   UUID REFERENCES users(id) ON DELETE SET NULL,
+  delivery_url TEXT NOT NULL DEFAULT '',
+  notes        TEXT NOT NULL DEFAULT '',
+  due_at       TIMESTAMPTZ,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_creator_tasks_status ON creator_tasks (status, created_at);
+CREATE INDEX IF NOT EXISTS idx_creator_tasks_creator ON creator_tasks (creator_id, status);

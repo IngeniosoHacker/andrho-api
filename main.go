@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"log"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -56,7 +57,25 @@ func main() {
 	}
 	defer redisClient.Close()
 
-	h := handlers.New(accountsPool, trackerPool, redisClient, cfg)
+	h, err := handlers.New(accountsPool, trackerPool, redisClient, cfg)
+	if err != nil {
+		log.Fatalf("main: %v", err)
+	}
+
+	// AndRho's own team (staff table) from ANDRHO_ADMINS / ANDRHO_CREATORS.
+	for role, emails := range map[string][]string{"admin": cfg.StaffAdmins, "creator": cfg.StaffCreators} {
+		if _, err := db.SyncStaff(ctx, accountsPool, role, emails); err != nil {
+			log.Printf("main: sync staff: %v", err)
+		}
+	}
+
+	// Provisioning that waits for the VPS (or failed) is retried in the
+	// background once VPS_* is configured.
+	go h.Provision.RetryLoop(ctx, 10*time.Minute, h.ProvisionAccount)
+	if !h.Provision.VPS.Enabled() {
+		log.Println("main: VPS_HOST is not set, ERP/WhatsApp provisioning will wait for it")
+	}
+
 	r := router.New(h)
 
 	addr := ":" + cfg.Port

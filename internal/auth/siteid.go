@@ -10,6 +10,12 @@ import (
 )
 
 var (
+	// Spanish letters keep their base letter: "Panadería Doña Ana" ->
+	// "panaderia-dona-ana", not "panader-a-do-a-ana".
+	accents = strings.NewReplacer(
+		"á", "a", "é", "e", "í", "i", "ó", "o", "ú", "u", "ü", "u", "ñ", "n",
+		"à", "a", "è", "e", "ì", "i", "ò", "o", "ù", "u", "ç", "c",
+	)
 	nonAlnumRe   = regexp.MustCompile(`[^a-z0-9]+`)
 	dashRunRe    = regexp.MustCompile(`-+`)
 	maxSiteIDLen = 48
@@ -18,7 +24,7 @@ var (
 // Slugify lowercases s, replaces runs of non-alphanumeric characters with a
 // single '-', collapses repeated dashes and trims leading/trailing dashes.
 func Slugify(s string) string {
-	slug := strings.ToLower(strings.TrimSpace(s))
+	slug := accents.Replace(strings.ToLower(strings.TrimSpace(s)))
 	slug = nonAlnumRe.ReplaceAllString(slug, "-")
 	slug = dashRunRe.ReplaceAllString(slug, "-")
 	slug = strings.Trim(slug, "-")

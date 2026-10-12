@@ -24,6 +24,20 @@ type Config struct {
 	GitHubRepos         []string // "owner/name" repos merged by GET /progress
 	AnthropicAPIKey     string   // optional; enables Claude (internal/ai)
 	AnthropicModel      string
+
+	// The remote VPS where provisioning scripts run (internal/vps). Empty
+	// VPSHost = provisioning waits for it.
+	VPSHost, VPSPort, VPSUser, VPSSSHKey, VPSHostKey, VPSScriptsDir string
+	OdooDBMode string // shared | dedicated | mixed
+
+	// SecretsKey encrypts stored credentials (internal/secret). Falls back to
+	// JWTSecret when unset.
+	SecretsKey string
+
+	// AndRho's own team, by email: admins see AndRho's metrics, creators
+	// build customer sites.
+	StaffAdmins   []string
+	StaffCreators []string
 }
 
 // Load reads a .env file if present (silently ignored when missing, since in
@@ -46,6 +60,20 @@ func Load() *Config {
 		GitHubRepos:         parseOrigins(getEnv("GITHUB_REPOS", "IngeniosoHacker/andrho,IngeniosoHacker/andrho-tracker-dashboard,IngeniosoHacker/andrho-api")),
 		AnthropicAPIKey:     getEnv("ANTHROPIC_API_KEY", ""),
 		AnthropicModel:      getEnv("ANTHROPIC_MODEL", "claude-sonnet-5-5"),
+		VPSHost:             getEnv("VPS_HOST", ""),
+		VPSPort:             getEnv("VPS_PORT", "22"),
+		VPSUser:             getEnv("VPS_USER", "andrho"),
+		VPSSSHKey:           getEnv("VPS_SSH_KEY", ""),
+		VPSHostKey:          getEnv("VPS_HOST_KEY", ""),
+		VPSScriptsDir:       getEnv("VPS_SCRIPTS_DIR", "/opt/andrho/VPS"),
+		OdooDBMode:          getEnv("ODOO_DB_MODE", "shared"),
+		SecretsKey:          getEnv("SECRETS_KEY", ""),
+		StaffAdmins:         parseOrigins(getEnv("ANDRHO_ADMINS", "")),
+		StaffCreators:       parseOrigins(getEnv("ANDRHO_CREATORS", "test@andrho.dev")),
+	}
+	if cfg.SecretsKey == "" {
+		log.Println("config: SECRETS_KEY is not set, stored credentials are encrypted with a key derived from JWT_SECRET")
+		cfg.SecretsKey = cfg.JWTSecret
 	}
 
 	return cfg

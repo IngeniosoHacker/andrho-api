@@ -58,6 +58,11 @@ already owns and migrates its own schema.
 | `GITHUB_TOKEN`              | —       | Optional GitHub token for `GET /progress` (lifts the 60/hour anonymous limit). |
 | `ANTHROPIC_API_KEY`         | —       | Optional. Enables Claude (`internal/ai`): the Analyzer's description reading, and later the dashboard's AndRho panel. Without it, rule-based fallbacks. |
 | `ANTHROPIC_MODEL`           | `claude-sonnet-5-5` | Model for those calls. |
+| `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_HOST_KEY`, `VPS_SCRIPTS_DIR` | — | The remote VPS where provisioning scripts run over SSH (see `../VPS/README.md`). Without `VPS_HOST`, ERP and WhatsApp provisioning wait for it. |
+| `ODOO_DB_MODE`              | `shared` | `shared`, `dedicated` or `mixed` (dedicated for Galáctico). |
+| `SECRETS_KEY`               | `JWT_SECRET` | Encrypts stored credentials (Odoo). Set once and keep. |
+| `ANDRHO_ADMINS`             | — | CSV of emails: AndRho staff admins (internal metrics). |
+| `ANDRHO_CREATORS`           | `test@andrho.dev` | CSV of emails: Creators (build customer sites). |
 
 In development, a `.env` file is loaded automatically (via `godotenv`) if
 present; its absence is not an error. In production (Railway), env vars are
@@ -245,6 +250,46 @@ per-repo counts, combined `contributors`, and the 10 latest commits across
 all repos in `recent`). Cached in Redis for 10 minutes; if GitHub fails, the
 last good copy (kept 7 days) is served. Set `GITHUB_TOKEN` (no scopes needed)
 to lift GitHub's 60 requests/hour anonymous limit.
+
+### `POST /auth/register`
+
+The signup with setup (rate-limited, 10/h per IP). Both signup paths, quick
+and custom, end here:
+
+```json
+{ "email": "...", "password": "...", "company_name": "...", "display_name": "...",
+  "setup": "rapida | personalizada",
+  "plan": "despegue | en_orbita | galactico",
+  "modules": ["inventario", "sitio_web", "whatsapp"],
+  "answers": { "...survey answers, optional" }, "description": "optional",
+  "phone": "+502 5555 5555",
+  "brand": { "essence": "...", "help": false, "logo": "data:image/png;base64,..." },
+  "provision": { "erp": "", "meta": "", "whatsapp": "", "web_page": null } }
+```
+
+It creates the account (its `site_id` is the **client id** every service is
+named after) and the owner, stores the setup (`account_setup`, logo ≤ 1 MB,
+PNG/JPG/WebP) and provisions the services (`internal/provision`). The
+`provision` fields are optional: whatever is left empty is filled from what
+matches it, a module needing the ERP sets `erp: "yes"`, the WhatsApp module
+takes `phone`, the website module sets `web_page`. Each service becomes a
+job in `provisioning_jobs`, run in the background:
+
+| Job | What it does | Waits for |
+| --- | --- | --- |
+| `erp` | Odoo + PostgreSQL on the VPS (`VPS/odoo/provision-client.sh` over SSH); the access is stored in `odoo_connections`, password encrypted with `SECRETS_KEY` | `VPS_*` (`esperando_vps`) |
+| `whatsapp` | The client in AndRho's WhatsApp solution (`VPS/whatsapp/register-client.sh`) | the VPS, then Meta (`esperando_meta`) |
+| `website` | A website task for Creators (`creator_tasks`) with the brand brief, assigned to the first creator | — |
+| `meta` | Nothing yet | Meta's Tech Provider approval |
+
+Jobs waiting for the VPS or failed are retried every 10 minutes (5 tries).
+The modules can't exceed the plan's limit (3, 6, all). Nothing is charged:
+every plan is free during the beta.
+
+`GET /account/provisioning` returns the setup, the jobs and the Creators
+tasks of the account; `GET /account/logo` the uploaded logo. `/auth/me` now
+includes `staff_role` (`admin` | `creator`) for AndRho's own team, synced at
+boot from `ANDRHO_ADMINS` / `ANDRHO_CREATORS`.
 
 ### `POST /analyzer` and `POST /analyzer/describe`
 
