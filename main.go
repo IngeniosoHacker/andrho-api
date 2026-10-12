@@ -62,9 +62,14 @@ func main() {
 		log.Fatalf("main: %v", err)
 	}
 
-	// AndRho's own team (staff table) from ANDRHO_ADMINS / ANDRHO_CREATORS.
-	for role, emails := range map[string][]string{"admin": cfg.StaffAdmins, "creator": cfg.StaffCreators} {
-		if _, err := db.SyncStaff(ctx, accountsPool, role, emails); err != nil {
+	// AndRho's own team (staff table) from ANDRHO_CREATORS / ANDRHO_ADMINS.
+	// Admins last: someone in both lists is an admin (admins pass every
+	// creator check anyway).
+	for _, s := range []struct {
+		role   string
+		emails []string
+	}{{"creator", cfg.StaffCreators}, {"admin", cfg.StaffAdmins}} {
+		if _, err := db.SyncStaff(ctx, accountsPool, s.role, s.emails); err != nil {
 			log.Printf("main: sync staff: %v", err)
 		}
 	}

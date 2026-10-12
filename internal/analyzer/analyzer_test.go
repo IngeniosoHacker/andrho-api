@@ -86,3 +86,19 @@ func TestSanitizeDropsInventedValues(t *testing.T) {
 		t.Errorf("sanitize = %+v", a)
 	}
 }
+
+func TestUrgency(t *testing.T) {
+	r := Urgency(
+		map[string]int{"inventario": 10, "marketing": 4},
+		map[string]int{"inventario": 6, "erp": 8},
+		map[string]int{"pierdo_control": 4, "sin_sistema": 2},
+		map[string]int{"marketing": 6},
+	)
+	if r[0].Key != "inventario" || r[0].Share != 100 {
+		t.Fatalf("top = %+v", r[0])
+	}
+	// marketing: 4 + 1.5*6 = 13 beats erp: 0.5*8 + 0.5*2 = 5
+	if r[1].Key != "marketing" {
+		t.Errorf("second = %+v", r[1])
+	}
+}

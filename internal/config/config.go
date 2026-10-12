@@ -38,6 +38,9 @@ type Config struct {
 	// build customer sites.
 	StaffAdmins   []string
 	StaffCreators []string
+	// AndRhoSiteID is AndRho's own site in the tracker (the landing, its
+	// minigame): what the staff admin views read.
+	AndRhoSiteID string
 }
 
 // Load reads a .env file if present (silently ignored when missing, since in
@@ -70,6 +73,7 @@ func Load() *Config {
 		SecretsKey:          getEnv("SECRETS_KEY", ""),
 		StaffAdmins:         parseOrigins(getEnv("ANDRHO_ADMINS", "")),
 		StaffCreators:       parseOrigins(getEnv("ANDRHO_CREATORS", "test@andrho.dev")),
+		AndRhoSiteID:        getEnv("ANDRHO_SITE_ID", "andrho"),
 	}
 	if cfg.SecretsKey == "" {
 		log.Println("config: SECRETS_KEY is not set, stored credentials are encrypted with a key derived from JWT_SECRET")

@@ -105,5 +105,22 @@ func New(h *handlers.Handler) *gin.Engine {
 	r.GET("/public/sites/:siteId/articles", h.PublicArticles)
 	r.GET("/public/sites/:siteId/articles/:slug", h.PublicArticle)
 
+	// AndRho's own team (staff table): admins see AndRho's metrics,
+	// creators work on customer tasks.
+	adminGroup := r.Group("/admin")
+	adminGroup.Use(requireAuth, h.RequireStaff("admin"))
+	{
+		adminGroup.GET("/overview", h.AdminOverview)
+		adminGroup.GET("/waitlist", h.AdminWaitlist)
+		adminGroup.GET("/game", h.AdminGame)
+	}
+	creatorsGroup := r.Group("/creators")
+	creatorsGroup.Use(requireAuth, h.RequireStaff("creator"))
+	{
+		creatorsGroup.GET("/tasks", h.CreatorTasks)
+		creatorsGroup.PATCH("/tasks/:id", h.UpdateCreatorTask)
+		creatorsGroup.GET("/tasks/:id/logo", h.CreatorTaskLogo)
+	}
+
 	return r
 }

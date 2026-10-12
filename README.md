@@ -291,6 +291,23 @@ tasks of the account; `GET /account/logo` the uploaded logo. `/auth/me` now
 includes `staff_role` (`admin` | `creator`) for AndRho's own team, synced at
 boot from `ANDRHO_ADMINS` / `ANDRHO_CREATORS`.
 
+### Staff: `/admin/*` and `/creators/*`
+
+For AndRho's own team (`staff` table, from `ANDRHO_ADMINS` /
+`ANDRHO_CREATORS`; admins pass every creator check):
+
+- `GET /admin/overview`: the waiting list in aggregate (counts per answer,
+  daily signups, recommended vs. picked plan, latest "una sola cosa"
+  answers), the accounts (plans, signup path, modules, provisioning) and
+  `urgency`, the ranking of what to build first: requested + ½ suggested
+  + ½ pains the module solves + 1½ accounts that switched it on.
+- `GET /admin/waitlist?limit=&offset=`: the submissions.
+- `GET /admin/game`: the landing minigame, from the tracker's events of
+  `ANDRHO_SITE_ID` (`andrho`).
+- `GET /creators/tasks`: open tasks plus the creator's own (admins: all).
+  `PATCH /creators/tasks/:id` with `action` `aceptar` | `entregar`
+  (`delivery_url` required) | `liberar`. `GET /creators/tasks/:id/logo`.
+
 ### `POST /analyzer` and `POST /analyzer/describe`
 
 Public, rate-limited per IP (120/h and 20/h). The Analyzer
