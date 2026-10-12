@@ -57,12 +57,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_invite_token ON users (invite_token_
 ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE CASCADE;
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens (user_id);
 
--- One row per suggestion shown under a dashboard section's "Sugerencias"
--- button (see andrho-tracker-dashboard's public/dashboard/app.js). `section`
--- is a free-form string naming which view it belongs to (marketing/ventas/
--- inventarios/kpis/campanas/personal/andrho/...). Generation is currently a
--- stub (see handlers/suggestions.go's generateSuggestionStub) -- body/report
--- are placeholder text until the real data+AI engine exists.
+-- One row per suggestion in the dashboard's AndRho panel (see
+-- andrho-tracker-dashboard's public/dashboard/js/insights.js). `section` is
+-- the dashboard section it belongs to (web/inventario/clientes/...). They
+-- come from the section's analysis (internal/insights): `body` is what to
+-- do, `report` the evidence behind it.
 CREATE TABLE IF NOT EXISTS suggestions (
   id          UUID PRIMARY KEY,
   account_id  UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
@@ -289,3 +288,13 @@ CREATE TABLE IF NOT EXISTS etl_runs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_etl_runs_account ON etl_runs (account_id, created_at DESC);
+
+-- The AndRho panel's last analysis per section (internal/insights), so
+-- coming back to a section within minutes doesn't recompute it.
+CREATE TABLE IF NOT EXISTS insights_runs (
+  account_id  UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  section     TEXT NOT NULL,
+  payload     JSONB NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (account_id, section)
+);

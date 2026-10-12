@@ -321,6 +321,21 @@ run returns the report and a preview without writing; otherwise Load creates
 or updates products (with stock as an inventory adjustment and categories)
 and customers. `GET /erp/imports` lists the runs (`etl_runs`).
 
+### `POST /insights/:section` (the AndRho panel)
+
+Runs when a dashboard section is opened (cached 10 minutes per section;
+`?refresh=1` recomputes). `internal/insights` extracts the section's data
+(tracker sessions, pageviews and AI crawls for web; products, point-of-sale
+orders and CRM leads from Odoo for the ERP sections; inicio/resumen
+combine them), processes it with plain statistics (week-over-week change,
+z-score anomalies, least-squares trend, days of stock cover, customers who
+stopped coming) into findings (`resumen`, `comentario`, `notificacion`), and
+proposes suggestions. With `ANTHROPIC_API_KEY`, Claude puts the findings
+into plain language (it never computes numbers); otherwise rule-based text.
+New proposals are filed as suggestions (`sugerida`) once per title, within
+the plan's monthly quota (`quota_reached` tells when one was held back).
+`POST /suggestions {section}` asks for one more the same way.
+
 ### Staff: `/admin/*` and `/creators/*`
 
 For AndRho's own team (`staff` table, from `ANDRHO_ADMINS` /

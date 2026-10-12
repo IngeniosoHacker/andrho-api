@@ -106,6 +106,9 @@ func New(h *handlers.Handler) *gin.Engine {
 	r.GET("/public/sites/:siteId/articles", h.PublicArticles)
 	r.GET("/public/sites/:siteId/articles/:slug", h.PublicArticle)
 
+	// The AndRho panel: analysis of a section when it's opened.
+	r.POST("/insights/:section", requireAuth, h.RunInsights)
+
 	// The account's ERP (Odoo): what the Inventario, Clientes, Prospectos,
 	// Sucursales and Resumen sections show.
 	erpGroup := r.Group("/erp")

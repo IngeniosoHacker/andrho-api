@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/IngeniosoHacker/andrho-api/internal/db"
+	"github.com/IngeniosoHacker/andrho-api/internal/insights"
 )
 
 // ListSuggestions handles GET /suggestions?section=marketing. Without
@@ -39,23 +40,11 @@ type createSuggestionRequest struct {
 	Section string `json:"section"`
 }
 
-// generateSuggestionStub is a placeholder for the real suggestion engine
-// ("combina R con AI", per product direction) that doesn't exist yet. It
-// returns fixed-shape, clearly-labeled placeholder content so the full
-// generate -> list -> accept/reject -> report flow is real and testable
-// end-to-end today; swap this function's body for the real call once that
-// engine exists -- nothing else in this file should need to change.
-func generateSuggestionStub(section string) (title, body, report string) {
-	title = "Sugerencia para " + section
-	body = "Contenido de ejemplo: esta sugerencia todavía no la genera el motor de IA real -- " +
-		"esta llamada está reservada para cuando exista (ver generateSuggestionStub en suggestions.go)."
-	report = "Reporte de ejemplo para la sección \"" + section + "\". Sin datos reales todavía."
-	return
-}
-
-// CreateSuggestion handles POST /suggestions. Enforces the account's monthly
-// suggestion quota (see suggestionQuotaByPlan in account.go) before calling
-// the (stub) generator.
+// CreateSuggestion handles POST /suggestions: asks AndRho for a new
+// suggestion for a section now. It runs the section's analysis
+// (internal/insights) and files the first proposal not already on the
+// account; 200 with suggestion null when there's nothing new. Enforces the
+// monthly quota (suggestionQuotaByPlan in account.go).
 func (h *Handler) CreateSuggestion(c *gin.Context) {
 	claims, ok := currentClaims(c)
 	if !ok {
@@ -94,15 +83,37 @@ func (h *Handler) CreateSuggestion(c *gin.Context) {
 		}
 	}
 
-	title, body, report := generateSuggestionStub(section)
-	creator := claims.Sub
-	s := db.Suggestion{
-		ID: uuid.NewString(), AccountID: claims.AccountID, Section: section,
-		Status: "sugerida", Title: title, Body: body, Report: report, CreatedBy: &creator,
+	src := insights.Sources{Tracker: h.Tracker, SiteID: claims.SiteID}
+	if cl, err := h.odooFor(ctx, claims.AccountID); err == nil {
+		src.Odoo = cl
 	}
-	s, err = db.CreateSuggestion(ctx, h.Accounts, s)
-	if err != nil {
-		respondError(c, http.StatusInternalServerError, "internal error")
+	var s db.Suggestion
+	found := false
+	for _, p := range insights.Run(ctx, src, h.AI, claims.AccountID, section).Proposals {
+		var exists bool
+		if err := h.Accounts.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM suggestions WHERE account_id = $1 AND title = $2 AND status IN ('sugerida', 'aceptada_en_proceso'))`,
+			claims.AccountID, p.Title).Scan(&exists); err != nil {
+			respondError(c, http.StatusInternalServerError, "internal error")
+			return
+		}
+		if exists {
+			continue
+		}
+		creator := claims.Sub
+		s, err = db.CreateSuggestion(ctx, h.Accounts, db.Suggestion{
+			ID: uuid.NewString(), AccountID: claims.AccountID, Section: section,
+			Status: "sugerida", Title: p.Title, Body: p.Body, Report: p.Evidence, CreatedBy: &creator,
+		})
+		if err != nil {
+			respondError(c, http.StatusInternalServerError, "internal error")
+			return
+		}
+		found = true
+		break
+	}
+	if !found {
+		c.JSON(http.StatusOK, gin.H{"suggestion": nil, "message": "Por ahora AndRho no tiene nada nuevo que sugerir en esta sección."})
 		return
 	}
 
