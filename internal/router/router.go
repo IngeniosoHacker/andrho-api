@@ -75,6 +75,7 @@ func New(h *handlers.Handler) *gin.Engine {
 		accountGroup.GET("/events", h.ListEvents)
 		accountGroup.GET("/provisioning", h.AccountProvisioning)
 		accountGroup.GET("/logo", h.AccountLogo)
+		accountGroup.POST("/erp", middleware.RequireRole("admin"), h.ConnectERP)
 	}
 
 	// Suggestions -- the per-view "Sugerencias" button and the global
@@ -104,6 +105,19 @@ func New(h *handlers.Handler) *gin.Engine {
 	// /articulos/ pages). site_id is the same public id the tracker uses.
 	r.GET("/public/sites/:siteId/articles", h.PublicArticles)
 	r.GET("/public/sites/:siteId/articles/:slug", h.PublicArticle)
+
+	// The account's ERP (Odoo): what the Inventario, Clientes, Prospectos,
+	// Sucursales and Resumen sections show.
+	erpGroup := r.Group("/erp")
+	erpGroup.Use(requireAuth)
+	{
+		erpGroup.GET("/status", h.ERPStatus)
+		erpGroup.GET("/inventory", h.ERPInventory)
+		erpGroup.GET("/customers", h.ERPCustomers)
+		erpGroup.GET("/leads", h.ERPLeads)
+		erpGroup.GET("/branches", h.ERPBranches)
+		erpGroup.GET("/history", h.ERPHistory)
+	}
 
 	// AndRho's own team (staff table): admins see AndRho's metrics,
 	// creators work on customer tasks.

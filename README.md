@@ -59,6 +59,7 @@ already owns and migrates its own schema.
 | `ANTHROPIC_API_KEY`         | —       | Optional. Enables Claude (`internal/ai`): the Analyzer's description reading, and later the dashboard's AndRho panel. Without it, rule-based fallbacks. |
 | `ANTHROPIC_MODEL`           | `claude-sonnet-5-5` | Model for those calls. |
 | `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_HOST_KEY`, `VPS_SCRIPTS_DIR` | — | The remote VPS where provisioning scripts run over SSH (see `../VPS/README.md`). Without `VPS_HOST`, ERP and WhatsApp provisioning wait for it. |
+| `ODOO_ALLOW_PRIVATE`        | — | `true` lets `POST /account/erp` reach private addresses (development only). |
 | `ODOO_DB_MODE`              | `shared` | `shared`, `dedicated` or `mixed` (dedicated for Galáctico). |
 | `SECRETS_KEY`               | `JWT_SECRET` | Encrypts stored credentials (Odoo). Set once and keep. |
 | `ANDRHO_ADMINS`             | — | CSV of emails: AndRho staff admins (internal metrics). |
@@ -290,6 +291,25 @@ every plan is free during the beta.
 tasks of the account; `GET /account/logo` the uploaded logo. `/auth/me` now
 includes `staff_role` (`admin` | `creator`) for AndRho's own team, synced at
 boot from `ANDRHO_ADMINS` / `ANDRHO_CREATORS`.
+
+### The account's ERP: `POST /account/erp` and `GET /erp/*`
+
+The dashboard's Inventario, Clientes, Prospectos, Sucursales and Resumen
+read the account's Odoo over JSON-RPC (`internal/odoo`): the one provisioned
+at signup, or one the business already had, connected with
+`POST /account/erp {url, db, login, password}` (admin+; the login is tested
+first, the password stored encrypted, the URL must be public unless
+`ODOO_ALLOW_PRIVATE=true` in development). Until there's a connection every
+`/erp/*` answers `404 {"error":"erp_not_connected"}`.
+
+| Endpoint | What |
+| --- | --- |
+| `GET /erp/status` | connected, url, db, login |
+| `GET /erp/inventory` | products with stock, value at cost, out of stock / low (≤ 5), latest movements |
+| `GET /erp/customers` | point-of-sale customers: total, orders, average ticket, last purchase, regulars who stopped coming |
+| `GET /erp/leads` | CRM opportunities (or contacts without purchases when there's no CRM) |
+| `GET /erp/branches` | warehouses and points of sale: open or not, today's sales |
+| `GET /erp/history?category=ventas\|inventario\|clientes` | the operations, newest first |
 
 ### Staff: `/admin/*` and `/creators/*`
 

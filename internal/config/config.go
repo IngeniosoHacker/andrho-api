@@ -29,6 +29,9 @@ type Config struct {
 	// VPSHost = provisioning waits for it.
 	VPSHost, VPSPort, VPSUser, VPSSSHKey, VPSHostKey, VPSScriptsDir string
 	OdooDBMode string // shared | dedicated | mixed
+	// OdooAllowPrivate lets POST /account/erp connect to private addresses
+	// (development only).
+	OdooAllowPrivate bool
 
 	// SecretsKey encrypts stored credentials (internal/secret). Falls back to
 	// JWTSecret when unset.
@@ -70,6 +73,7 @@ func Load() *Config {
 		VPSHostKey:          getEnv("VPS_HOST_KEY", ""),
 		VPSScriptsDir:       getEnv("VPS_SCRIPTS_DIR", "/opt/andrho/VPS"),
 		OdooDBMode:          getEnv("ODOO_DB_MODE", "shared"),
+		OdooAllowPrivate:    getEnv("ODOO_ALLOW_PRIVATE", "") == "true",
 		SecretsKey:          getEnv("SECRETS_KEY", ""),
 		StaffAdmins:         parseOrigins(getEnv("ANDRHO_ADMINS", "")),
 		StaffCreators:       parseOrigins(getEnv("ANDRHO_CREATORS", "test@andrho.dev")),
