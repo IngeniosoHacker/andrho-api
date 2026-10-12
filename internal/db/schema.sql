@@ -298,3 +298,21 @@ CREATE TABLE IF NOT EXISTS insights_runs (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (account_id, section)
 );
+
+-- Where each person on the team is (the dashboard's Usuarios): a status
+-- they set (disponible, almorzando, en_reunion, en_ruta, fuera) and when
+-- the dashboard last saw them (a heartbeat while it's open).
+CREATE TABLE IF NOT EXISTS user_presence (
+  user_id      UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  status       TEXT NOT NULL DEFAULT 'disponible',
+  note         TEXT NOT NULL DEFAULT '',
+  status_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Per-person dashboard preferences, e.g. the cards on Inicio.
+CREATE TABLE IF NOT EXISTS user_preferences (
+  user_id    UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  prefs      JSONB NOT NULL DEFAULT '{}',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

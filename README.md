@@ -321,6 +321,15 @@ run returns the report and a preview without writing; otherwise Load creates
 or updates products (with stock as an inventory adjustment and categories)
 and customers. `GET /erp/imports` lists the runs (`etl_runs`).
 
+### Team presence and preferences
+
+`PATCH /account/me/status {status, note}` (disponible, almorzando,
+en_reunion, en_ruta, fuera), `POST /account/me/heartbeat` (the dashboard
+calls it every minute while open) and `GET /account/presence` (everyone on
+the account, `online` = seen in the last 3 minutes) back the Usuarios
+section. `GET|PUT /account/me/preferences` stores a per-person JSON object
+(≤ 8 KB), e.g. the cards on Inicio.
+
 ### `POST /insights/:section` (the AndRho panel)
 
 Runs when a dashboard section is opened (cached 10 minutes per section;

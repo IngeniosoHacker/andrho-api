@@ -74,6 +74,11 @@ func New(h *handlers.Handler) *gin.Engine {
 		accountGroup.PATCH("/plan", middleware.RequireRole("owner"), h.UpdatePlan)
 		accountGroup.GET("/events", h.ListEvents)
 		accountGroup.GET("/provisioning", h.AccountProvisioning)
+		accountGroup.GET("/presence", h.TeamPresence)
+		accountGroup.PATCH("/me/status", h.SetMyStatus)
+		accountGroup.POST("/me/heartbeat", h.Heartbeat)
+		accountGroup.GET("/me/preferences", h.GetPreferences)
+		accountGroup.PUT("/me/preferences", h.SavePreferences)
 		accountGroup.GET("/logo", h.AccountLogo)
 		accountGroup.POST("/erp", middleware.RequireRole("admin"), h.ConnectERP)
 	}
