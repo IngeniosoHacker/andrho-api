@@ -304,6 +304,11 @@ For AndRho's own team (`staff` table, from `ANDRHO_ADMINS` /
 - `GET /admin/waitlist?limit=&offset=`: the submissions.
 - `GET /admin/game`: the landing minigame, from the tracker's events of
   `ANDRHO_SITE_ID` (`andrho`).
+- `GET /admin/tokens?days=30`: AI tokens by source (`development`,
+  `whatsapp`, `analyzer`, `insights`), model, day and account.
+  `POST /admin/tokens` `{source, entries:[{date, model, input_tokens,
+  output_tokens, note}]}` records usage the product doesn't see by itself
+  (the team's development usage, by day).
 - `GET /creators/tasks`: open tasks plus the creator's own (admins: all).
   `PATCH /creators/tasks/:id` with `action` `aceptar` | `entregar`
   (`delivery_url` required) | `liberar`. `GET /creators/tasks/:id/logo`.

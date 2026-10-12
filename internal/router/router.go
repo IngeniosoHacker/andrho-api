@@ -113,6 +113,8 @@ func New(h *handlers.Handler) *gin.Engine {
 		adminGroup.GET("/overview", h.AdminOverview)
 		adminGroup.GET("/waitlist", h.AdminWaitlist)
 		adminGroup.GET("/game", h.AdminGame)
+		adminGroup.GET("/tokens", h.AdminTokens)
+		adminGroup.POST("/tokens", h.ImportTokens)
 	}
 	creatorsGroup := r.Group("/creators")
 	creatorsGroup.Use(requireAuth, h.RequireStaff("creator"))
