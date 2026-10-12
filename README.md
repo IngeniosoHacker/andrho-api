@@ -244,6 +244,29 @@ all repos in `recent`). Cached in Redis for 10 minutes; if GitHub fails, the
 last good copy (kept 7 days) is served. Set `GITHUB_TOKEN` (no scopes needed)
 to lift GitHub's 60 requests/hour anonymous limit.
 
+### Articles: `GET|POST /articles`, `GET|PUT|DELETE /articles/:id`
+
+Auth required; writing needs `editor`+. The account's site articles, managed
+from the dashboard's Web > Artículos tab (written there or uploaded as a
+`.md` file). Body:
+
+```json
+{ "title": "...", "slug": "optional, from the title", "description": "≤320",
+  "keywords": ["target searches"], "tags": ["..."], "author": "...",
+  "body": "Markdown", "path": "optional, default /articulos/<slug>.html",
+  "status": "borrador | publicado" }
+```
+
+The slug is unique per account (409 otherwise). Publishing stamps
+`published_at` the first time; an empty body can't be published. Lists
+leave the body out and return `word_count` for reading time.
+
+### `GET /public/sites/:siteId/articles[/:slug]`
+
+Public. The published articles of the account that owns `site_id` (the
+tracker's public id), for the site's own pages: the list without bodies, or
+one article with its Markdown body. `Cache-Control: max-age=60`.
+
 ## JWT contract
 
 **This is the contract `andrho-tracker-dashboard` relies on — do not change
@@ -307,7 +330,7 @@ andrho-api/
 │   ├── redisclient/              # redis client setup
 │   ├── models/                  # Account / PublicAccount structs
 │   ├── auth/                     # bcrypt, JWT issue/verify, refresh token generation, site_id slugify+retry
-│   ├── handlers/                 # signup, login, refresh, logout, me
+│   ├── handlers/                 # auth, team, suggestions, waitlist, progress, articles
 │   ├── middleware/                # RequireAuth, CORS, login rate-limit
 │   └── router/                    # Gin route registration
 └── railway.json

@@ -78,5 +78,22 @@ func New(h *handlers.Handler) *gin.Engine {
 		suggestionsGroup.PATCH("/:id/status", middleware.RequireRole("editor"), h.UpdateSuggestionStatus)
 	}
 
+	// Articles -- the dashboard's Web > Artículos tab. Anyone on the account
+	// can read; writing requires editor+.
+	articlesGroup := r.Group("/articles")
+	articlesGroup.Use(requireAuth)
+	{
+		articlesGroup.GET("", h.ListArticles)
+		articlesGroup.GET("/:id", h.GetArticle)
+		articlesGroup.POST("", middleware.RequireRole("editor"), h.CreateArticle)
+		articlesGroup.PUT("/:id", middleware.RequireRole("editor"), h.UpdateArticle)
+		articlesGroup.DELETE("/:id", middleware.RequireRole("editor"), h.DeleteArticle)
+	}
+
+	// Public: a site's published articles, read by the site itself (its
+	// /articulos/ pages). site_id is the same public id the tracker uses.
+	r.GET("/public/sites/:siteId/articles", h.PublicArticles)
+	r.GET("/public/sites/:siteId/articles/:slug", h.PublicArticle)
+
 	return r
 }

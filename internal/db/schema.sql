@@ -148,3 +148,30 @@ ALTER TABLE waitlist_submissions
 -- these arrays; GIN keeps `modules @> '{inventario}'` style filters cheap.
 CREATE INDEX IF NOT EXISTS idx_waitlist_submissions_modules ON waitlist_submissions USING GIN (modules);
 CREATE INDEX IF NOT EXISTS idx_waitlist_submissions_expectations ON waitlist_submissions USING GIN (expectations);
+
+-- Articles an account publishes on its site (the dashboard's Web > Artículos
+-- tab uploads them; the site reads them back through the public
+-- /public/sites/:siteId/articles endpoints). `body` is Markdown. `path` is
+-- where the article lives on the site, so the tracker's pageviews can be
+-- matched to it; empty means the default /articulos/<slug>.html.
+CREATE TABLE IF NOT EXISTS articles (
+  id              UUID PRIMARY KEY,
+  account_id      UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  slug            TEXT NOT NULL,
+  title           TEXT NOT NULL,
+  description     TEXT NOT NULL DEFAULT '',
+  keywords        TEXT[] NOT NULL DEFAULT '{}', -- the searches the article targets
+  tags            TEXT[] NOT NULL DEFAULT '{}',
+  author          TEXT NOT NULL DEFAULT '',
+  body            TEXT NOT NULL DEFAULT '',
+  word_count      INTEGER NOT NULL DEFAULT 0, -- of body, for reading time without loading it
+  path            TEXT NOT NULL DEFAULT '',
+  status          TEXT NOT NULL DEFAULT 'borrador', -- borrador | publicado
+  published_at    TIMESTAMPTZ,
+  created_by      UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (account_id, slug)
+);
+
+CREATE INDEX IF NOT EXISTS idx_articles_account ON articles (account_id, status, published_at DESC);
