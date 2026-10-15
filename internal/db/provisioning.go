@@ -72,8 +72,13 @@ type AccountSetup struct {
 	BrandEssence string          `json:"brand_essence"`
 	BrandHelp    bool            `json:"brand_help"`
 	HasLogo      bool            `json:"has_logo"`
-	LogoType     string          `json:"-"`
-	Logo         []byte          `json:"-"`
+	// The minigame discount claimed at signup (0 = none).
+	DiscountPercent int    `json:"discount_percent"`
+	DiscountCode    string `json:"discount_code"`
+	GameSessionID   string `json:"-"`
+	VisitorID       string `json:"-"` // the web tracker's visitor id
+	LogoType        string `json:"-"`
+	Logo            []byte `json:"-"`
 }
 
 // SaveAccountSetup inserts or replaces the account's setup.
@@ -86,11 +91,14 @@ func SaveAccountSetup(ctx context.Context, pool *pgxpool.Pool, s AccountSetup) e
 		logo = s.Logo
 	}
 	_, err := pool.Exec(ctx,
-		`INSERT INTO account_setup (account_id, setup, answers, description, modules, phone, brand_essence, brand_help, logo_type, logo)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		`INSERT INTO account_setup (account_id, setup, answers, description, modules, phone, brand_essence, brand_help, logo_type, logo,
+		   discount_percent, discount_code, game_session_id, visitor_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		 ON CONFLICT (account_id) DO UPDATE SET setup = $2, answers = $3, description = $4, modules = $5, phone = $6,
-		   brand_essence = $7, brand_help = $8, logo_type = $9, logo = $10, updated_at = now()`,
-		s.AccountID, s.Setup, s.Answers, s.Description, s.Modules, s.Phone, s.BrandEssence, s.BrandHelp, s.LogoType, logo)
+		   brand_essence = $7, brand_help = $8, logo_type = $9, logo = $10,
+		   discount_percent = $11, discount_code = $12, game_session_id = $13, visitor_id = $14, updated_at = now()`,
+		s.AccountID, s.Setup, s.Answers, s.Description, s.Modules, s.Phone, s.BrandEssence, s.BrandHelp, s.LogoType, logo,
+		s.DiscountPercent, s.DiscountCode, s.GameSessionID, s.VisitorID)
 	if err != nil {
 		return fmt.Errorf("db: save account setup: %w", err)
 	}
@@ -101,9 +109,11 @@ func SaveAccountSetup(ctx context.Context, pool *pgxpool.Pool, s AccountSetup) e
 func GetAccountSetup(ctx context.Context, pool *pgxpool.Pool, accountID string) (AccountSetup, error) {
 	s := AccountSetup{AccountID: accountID}
 	err := pool.QueryRow(ctx,
-		`SELECT setup, answers, description, modules, phone, brand_essence, brand_help, logo_type, COALESCE(logo, '')
+		`SELECT setup, answers, description, modules, phone, brand_essence, brand_help, logo_type, COALESCE(logo, ''),
+		   discount_percent, discount_code, game_session_id, visitor_id
 		 FROM account_setup WHERE account_id = $1`, accountID,
-	).Scan(&s.Setup, &s.Answers, &s.Description, &s.Modules, &s.Phone, &s.BrandEssence, &s.BrandHelp, &s.LogoType, &s.Logo)
+	).Scan(&s.Setup, &s.Answers, &s.Description, &s.Modules, &s.Phone, &s.BrandEssence, &s.BrandHelp, &s.LogoType, &s.Logo,
+		&s.DiscountPercent, &s.DiscountCode, &s.GameSessionID, &s.VisitorID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return s, ErrNotFound
 	}

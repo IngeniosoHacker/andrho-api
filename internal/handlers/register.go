@@ -47,6 +47,37 @@ type registerRequest struct {
 		Logo    string `json:"logo"` // data:image/png|jpeg|webp;base64,...
 	} `json:"brand"`
 	Provision provision.Request `json:"provision"`
+	// The landing's minigame result, when the visitor came from "Reclamar
+	// mi X%" (signup.html?descuento=…&destruidos=…&partida=…).
+	Discount *struct {
+		Percent   int    `json:"percent"`
+		Destroyed int    `json:"destroyed"`
+		Code      string `json:"code"`
+		SessionID string `json:"session_id"`
+	} `json:"discount"`
+	VisitorID string `json:"visitor_id"` // the web tracker's _atrk_vid
+}
+
+var (
+	discountCodeRe = regexp.MustCompile(`^ANDRHO-(\d{1,2})-[A-Z0-9]{6}$`)
+	opaqueIDRe     = regexp.MustCompile(`^[A-Za-z0-9-]{8,64}$`)
+)
+
+// gameDiscount is the minigame's tier for a number of destroyed asteroids
+// (web/src/lib/discountTiers.js): 5-14 → 5%, 15-29 → 10%, 30-49 → 15%,
+// 50+ → 20%.
+func gameDiscount(destroyed int) int {
+	switch {
+	case destroyed >= 50:
+		return 20
+	case destroyed >= 30:
+		return 15
+	case destroyed >= 15:
+		return 10
+	case destroyed >= 5:
+		return 5
+	}
+	return 0
 }
 
 var logoRe = regexp.MustCompile(`^data:(image/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=\s]+)$`)
@@ -133,6 +164,21 @@ func (h *Handler) Register(c *gin.Context) {
 		logoType, logo = m[1], data
 	}
 
+	// A claim whose percent doesn't match its count (or a malformed code) is
+	// dropped, not an error: the account still gets created.
+	var discountPercent int
+	var discountCode, gameSession string
+	if d := req.Discount; d != nil {
+		m := discountCodeRe.FindStringSubmatch(d.Code)
+		if p := gameDiscount(d.Destroyed); p > 0 && p == d.Percent && m != nil && m[1] == strconv.Itoa(p) && opaqueIDRe.MatchString(d.SessionID) {
+			discountPercent, discountCode, gameSession = p, d.Code, d.SessionID
+		}
+	}
+	visitorID := ""
+	if opaqueIDRe.MatchString(req.VisitorID) {
+		visitorID = req.VisitorID
+	}
+
 	var answers json.RawMessage = []byte(`{}`)
 	var sectors []string
 	if req.Answers != nil {
@@ -152,6 +198,7 @@ func (h *Handler) Register(c *gin.Context) {
 		AccountID: acc.ID, Setup: req.Setup, Answers: answers, Description: req.Description, Modules: modules,
 		Phone: strings.TrimSpace(req.Phone), BrandEssence: req.Brand.Essence, BrandHelp: req.Brand.Help,
 		LogoType: logoType, Logo: logo,
+		DiscountPercent: discountPercent, DiscountCode: discountCode, GameSessionID: gameSession, VisitorID: visitorID,
 	}
 	if err := db.SaveAccountSetup(ctx, h.Accounts, setup); err != nil {
 		_ = db.DeleteAccount(ctx, h.Accounts, acc.ID)
@@ -186,6 +233,7 @@ func (h *Handler) Register(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{
 		"access_token": tokens.AccessToken, "refresh_token": tokens.RefreshToken,
 		"account": acc.ToPublic(), "plan": acc.Plan, "modules": modules, "provisioning": jobs,
+		"discount": gin.H{"percent": discountPercent, "code": discountCode},
 	})
 }
 

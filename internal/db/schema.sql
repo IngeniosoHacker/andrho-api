@@ -222,6 +222,15 @@ CREATE TABLE IF NOT EXISTS account_setup (
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- The minigame discount claimed at signup (the landing's game links to
+-- signup.html with the result) and the web tracker's visitor id, which ties
+-- the account to the visits that led to it.
+ALTER TABLE account_setup
+  ADD COLUMN IF NOT EXISTS discount_percent INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS discount_code    TEXT    NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS game_session_id  TEXT    NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS visitor_id       TEXT    NOT NULL DEFAULT '';
+
 -- One row per thing the signup sets up for an account (internal/provision):
 -- kind erp (Odoo + PostgreSQL on the VPS), whatsapp (registration in the
 -- WhatsApp solution), website (a Creators task). status: pendiente |
