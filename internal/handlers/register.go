@@ -206,9 +206,9 @@ func (h *Handler) Register(c *gin.Context) {
 		return
 	}
 
-	// The ERP always (with the Odoo modules for these modules), and meta,
-	// whatsapp, web_page: whatever the
-	// request left empty is filled from the modules and the phone.
+	// The ERP always (with the Odoo modules these modules need), and meta,
+	// whatsapp and web_page filled from the modules and the phone when the
+	// request left them empty.
 	pr := req.Provision
 	pr.Fill(modules, setup.Phone)
 	pacc := provision.Account{ID: acc.ID, ClientID: acc.SiteID, Company: acc.CompanyName, Plan: acc.Plan}
