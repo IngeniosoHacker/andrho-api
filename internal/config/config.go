@@ -29,6 +29,9 @@ type Config struct {
 	// VPSHost = provisioning waits for it.
 	VPSHost, VPSPort, VPSUser, VPSSSHKey, VPSHostKey, VPSScriptsDir string
 	OdooDBMode string // shared | dedicated | mixed
+	// DashboardURL is the dashboard's address; each ERP sends people back
+	// there (DASHBOARD_URL, e.g. https://dev.andrho.com/dashboard/).
+	DashboardURL string
 	// OdooAllowPrivate lets POST /account/erp connect to private addresses
 	// (development only).
 	OdooAllowPrivate bool
@@ -73,6 +76,7 @@ func Load() *Config {
 		VPSHostKey:          getEnv("VPS_HOST_KEY", ""),
 		VPSScriptsDir:       getEnv("VPS_SCRIPTS_DIR", "/opt/andrho/VPS"),
 		OdooDBMode:          getEnv("ODOO_DB_MODE", "shared"),
+		DashboardURL:        getEnv("DASHBOARD_URL", ""),
 		OdooAllowPrivate:    getEnv("ODOO_ALLOW_PRIVATE", "") == "true",
 		SecretsKey:          getEnv("SECRETS_KEY", ""),
 		StaffAdmins:         parseOrigins(getEnv("ANDRHO_ADMINS", "")),

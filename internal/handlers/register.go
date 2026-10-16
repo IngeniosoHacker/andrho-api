@@ -211,7 +211,8 @@ func (h *Handler) Register(c *gin.Context) {
 	// request left them empty.
 	pr := req.Provision
 	pr.Fill(modules, setup.Phone)
-	pacc := provision.Account{ID: acc.ID, ClientID: acc.SiteID, Company: acc.CompanyName, Plan: acc.Plan}
+	pacc := provision.Account{ID: acc.ID, ClientID: acc.SiteID, Company: acc.CompanyName, Plan: acc.Plan,
+		OwnerEmail: user.Email, OwnerName: user.DisplayName}
 	jobs, err := h.Provision.Plan(ctx, pacc, pr, provision.Brief{
 		Company: acc.CompanyName, ClientID: acc.SiteID, Essence: req.Brand.Essence, BrandHelp: req.Brand.Help,
 		HasLogo: len(logo) > 0, Modules: modules, Sectors: sectors,

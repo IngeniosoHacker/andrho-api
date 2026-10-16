@@ -103,6 +103,12 @@ func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + 
 // script is a path inside the scripts dir (e.g. "odoo/provision-client.sh");
 // args are validated and quoted, env is passed as VAR=value prefixes.
 func (r *Runner) Run(ctx context.Context, script string, env map[string]string, args ...string) (string, error) {
+	return r.RunLines(ctx, script, env, nil, args...)
+}
+
+// RunLines is Run, calling onLine with each line of stdout as it arrives
+// (the scripts' PROGRESS lines).
+func (r *Runner) RunLines(ctx context.Context, script string, env map[string]string, onLine func(string), args ...string) (string, error) {
 	if !r.Enabled() {
 		return "", ErrDisabled
 	}
@@ -146,7 +152,7 @@ func (r *Runner) Run(ctx context.Context, script string, env map[string]string, 
 	defer session.Close()
 
 	var stdout, stderr bytes.Buffer
-	session.Stdout, session.Stderr = &stdout, &stderr
+	session.Stdout, session.Stderr = &lineWriter{all: &stdout, onLine: onLine}, &stderr
 	done := make(chan error, 1)
 	go func() { done <- session.Run(strings.Join(cmd, " ")) }()
 	select {
@@ -158,6 +164,30 @@ func (r *Runner) Run(ctx context.Context, script string, env map[string]string, 
 			return stdout.String(), fmt.Errorf("vps: %s: %w: %s", script, err, tail(stderr.String(), 400))
 		}
 		return stdout.String(), nil
+	}
+}
+
+// lineWriter keeps everything written and hands each complete line to
+// onLine.
+type lineWriter struct {
+	all     *bytes.Buffer
+	onLine  func(string)
+	pending []byte
+}
+
+func (w *lineWriter) Write(p []byte) (int, error) {
+	w.all.Write(p)
+	if w.onLine == nil {
+		return len(p), nil
+	}
+	w.pending = append(w.pending, p...)
+	for {
+		i := bytes.IndexByte(w.pending, '\n')
+		if i < 0 {
+			return len(p), nil
+		}
+		w.onLine(strings.TrimRight(string(w.pending[:i]), "\r"))
+		w.pending = w.pending[i+1:]
 	}
 }
 

@@ -135,15 +135,16 @@ type ProvisioningJob struct {
 	Input     json.RawMessage `json:"input"`
 	Result    json.RawMessage `json:"result"`
 	Attempts  int             `json:"attempts"`
+	Progress  int             `json:"progress"` // 0-100 while it runs
 	CreatedAt time.Time       `json:"created_at"`
 	UpdatedAt time.Time       `json:"updated_at"`
 }
 
-const jobCols = `id, account_id, kind, status, detail, input, result, attempts, created_at, updated_at`
+const jobCols = `id, account_id, kind, status, detail, input, result, attempts, progress, created_at, updated_at`
 
 func scanJob(row pgx.Row) (ProvisioningJob, error) {
 	var j ProvisioningJob
-	err := row.Scan(&j.ID, &j.AccountID, &j.Kind, &j.Status, &j.Detail, &j.Input, &j.Result, &j.Attempts, &j.CreatedAt, &j.UpdatedAt)
+	err := row.Scan(&j.ID, &j.AccountID, &j.Kind, &j.Status, &j.Detail, &j.Input, &j.Result, &j.Attempts, &j.Progress, &j.CreatedAt, &j.UpdatedAt)
 	return j, err
 }
 
@@ -174,6 +175,16 @@ func UpdateProvisioningJob(ctx context.Context, pool *pgxpool.Pool, id, status, 
 		 WHERE id = $1`, id, status, detail, string(result), attempted)
 	if err != nil {
 		return fmt.Errorf("db: update provisioning job: %w", err)
+	}
+	return nil
+}
+
+// SetJobProgress records how far a running job is, with what it's doing.
+func SetJobProgress(ctx context.Context, pool *pgxpool.Pool, id string, progress int, detail string) error {
+	_, err := pool.Exec(ctx, `UPDATE provisioning_jobs SET progress = $2, detail = $3, updated_at = now() WHERE id = $1`,
+		id, min(max(progress, 0), 100), detail)
+	if err != nil {
+		return fmt.Errorf("db: job progress: %w", err)
 	}
 	return nil
 }
@@ -209,21 +220,24 @@ func queryJobs(ctx context.Context, pool *pgxpool.Pool, q string, arg any) ([]Pr
 // Odoo connections
 // ---------------------------------------------------------------------
 
-// OdooConnection mirrors `odoo_connections` (Secret is the sealed password).
+// OdooConnection mirrors `odoo_connections` (Secret is the sealed password,
+// SSOSecret the sealed key of the dashboard's entry tokens, nil when the
+// business connected its own Odoo).
 type OdooConnection struct {
 	AccountID string
 	URL       string
 	DBName    string
 	Login     string
 	Secret    []byte
+	SSOSecret []byte
 }
 
 // SaveOdooConnection inserts or replaces the account's Odoo access.
 func SaveOdooConnection(ctx context.Context, pool *pgxpool.Pool, c OdooConnection) error {
 	_, err := pool.Exec(ctx,
-		`INSERT INTO odoo_connections (account_id, url, db_name, login, secret) VALUES ($1, $2, $3, $4, $5)
-		 ON CONFLICT (account_id) DO UPDATE SET url = $2, db_name = $3, login = $4, secret = $5, updated_at = now()`,
-		c.AccountID, c.URL, c.DBName, c.Login, c.Secret)
+		`INSERT INTO odoo_connections (account_id, url, db_name, login, secret, sso_secret) VALUES ($1, $2, $3, $4, $5, $6)
+		 ON CONFLICT (account_id) DO UPDATE SET url = $2, db_name = $3, login = $4, secret = $5, sso_secret = $6, updated_at = now()`,
+		c.AccountID, c.URL, c.DBName, c.Login, c.Secret, c.SSOSecret)
 	if err != nil {
 		return fmt.Errorf("db: save odoo connection: %w", err)
 	}
@@ -233,8 +247,8 @@ func SaveOdooConnection(ctx context.Context, pool *pgxpool.Pool, c OdooConnectio
 // GetOdooConnection reads the account's Odoo access.
 func GetOdooConnection(ctx context.Context, pool *pgxpool.Pool, accountID string) (OdooConnection, error) {
 	c := OdooConnection{AccountID: accountID}
-	err := pool.QueryRow(ctx, `SELECT url, db_name, login, secret FROM odoo_connections WHERE account_id = $1`, accountID).
-		Scan(&c.URL, &c.DBName, &c.Login, &c.Secret)
+	err := pool.QueryRow(ctx, `SELECT url, db_name, login, secret, sso_secret FROM odoo_connections WHERE account_id = $1`, accountID).
+		Scan(&c.URL, &c.DBName, &c.Login, &c.Secret, &c.SSOSecret)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return c, ErrNotFound
 	}

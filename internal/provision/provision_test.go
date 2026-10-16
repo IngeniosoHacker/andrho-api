@@ -52,6 +52,17 @@ func TestOdooModulesFromSignup(t *testing.T) {
 	}
 }
 
+func TestParseProgress(t *testing.T) {
+	if p, text, ok := parseProgress("PROGRESS 15 Creando tu ERP con inventario"); !ok || p != 15 || text != "Creando tu ERP con inventario" {
+		t.Errorf("parse = %d %q %v", p, text, ok)
+	}
+	for _, l := range []string{"odoo-x already exists", "PROGRESS x y", `{"url":"..."}`} {
+		if _, _, ok := parseProgress(l); ok {
+			t.Errorf("%q parsed as progress", l)
+		}
+	}
+}
+
 func TestERPInputModules(t *testing.T) {
 	// A job from before the list existed installs inventory.
 	if got := (erpInput{DBMode: "shared"}).modules(); !slices.Equal(got, []string{"stock"}) {

@@ -120,6 +120,7 @@ func New(h *handlers.Handler) *gin.Engine {
 	erpGroup.Use(requireAuth)
 	{
 		erpGroup.GET("/status", h.ERPStatus)
+		erpGroup.POST("/sso", h.ERPSSO)
 		erpGroup.GET("/inventory", h.ERPInventory)
 		erpGroup.GET("/customers", h.ERPCustomers)
 		erpGroup.GET("/leads", h.ERPLeads)

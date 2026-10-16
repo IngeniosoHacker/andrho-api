@@ -61,6 +61,7 @@ already owns and migrates its own schema.
 | `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_HOST_KEY`, `VPS_SCRIPTS_DIR` | — | The remote VPS where provisioning scripts run over SSH (see `../VPS/README.md`). Without `VPS_HOST`, ERP and WhatsApp provisioning wait for it. |
 | `ODOO_ALLOW_PRIVATE`        | — | `true` lets `POST /account/erp` reach private addresses (development only). |
 | `ODOO_DB_MODE`              | `shared` | `shared`, `dedicated` or `mixed` (dedicated for Galáctico). |
+| `DASHBOARD_URL`             | — | The dashboard's address (e.g. `https://dev.andrho.com/dashboard/`). Each provisioned ERP sends people back there: its login page, logout and "Volver a AndRho". |
 | `SECRETS_KEY`               | `JWT_SECRET` | Encrypts stored credentials (Odoo). Set once and keep. |
 | `ANDRHO_ADMINS`             | — | CSV of emails: AndRho staff admins (internal metrics). |
 | `ANDRHO_CREATORS`           | `test@andrho.dev` | CSV of emails: Creators (build customer sites). |
@@ -301,6 +302,12 @@ the background:
 | `website` | A website task for Creators (`creator_tasks`) with the brand brief, assigned to the first creator | — |
 | `meta` | Nothing yet | Meta's Tech Provider approval |
 
+While the `erp` job runs, the script's `PROGRESS <0-100> <text>` lines
+update the job's `progress` and `detail`, so the dashboard shows how far the
+ERP is. The ERP's administrator is the account's owner (their email and
+name); the script also returns the SSO secret, stored sealed in
+`odoo_connections.sso_secret`.
+
 Jobs waiting for the VPS or failed are retried every 10 minutes (5 tries).
 The modules can't exceed the plan's limit (3, 6, all). Nothing is charged:
 every plan is free during the beta.
@@ -323,6 +330,7 @@ first, the password stored encrypted, the URL must be public unless
 | Endpoint | What |
 | --- | --- |
 | `GET /erp/status` | connected, url, db, login |
+| `POST /erp/sso` | `{url, sso}`: where the dashboard's ERP button goes. For the ERP AndRho provisioned, a one-time address (60 s) that opens the user's session there with their AndRho email, no Odoo login (`internal/odoo/sso.go`, checked by `andrho_core` in the andrho_odoo repo). For an Odoo the business connected, its address. |
 | `GET /erp/inventory` | products with stock, value at cost, out of stock / low (≤ 5), latest movements |
 | `GET /erp/customers` | point-of-sale customers: total, orders, average ticket, last purchase, regulars who stopped coming |
 | `GET /erp/leads` | CRM opportunities (or contacts without purchases when there's no CRM) |

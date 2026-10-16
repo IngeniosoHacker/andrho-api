@@ -248,6 +248,9 @@ CREATE TABLE IF NOT EXISTS provisioning_jobs (
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- How far a running job is (0-100), from the VPS script's PROGRESS lines.
+ALTER TABLE provisioning_jobs ADD COLUMN IF NOT EXISTS progress INTEGER NOT NULL DEFAULT 0;
+
 CREATE INDEX IF NOT EXISTS idx_provisioning_jobs_account ON provisioning_jobs (account_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_provisioning_jobs_status ON provisioning_jobs (status);
 
@@ -262,6 +265,11 @@ CREATE TABLE IF NOT EXISTS odoo_connections (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- The secret the ERP's andrho_core checks the dashboard's entry tokens
+-- with (POST /erp/sso), sealed like the password. NULL for an Odoo the
+-- business connected itself: there the button just opens it.
+ALTER TABLE odoo_connections ADD COLUMN IF NOT EXISTS sso_secret BYTEA;
 
 -- Work for Creators (designers and developers on AndRho): a customer's
 -- website, brand, etc. status: abierta -> aceptada -> entregada.

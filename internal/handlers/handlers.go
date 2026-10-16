@@ -42,7 +42,7 @@ func New(accounts, tracker *pgxpool.Pool, rdb *redis.Client, cfg *config.Config)
 		return nil, err
 	}
 	h.Secrets = box
-	h.Provision = &provision.Provisioner{DB: accounts, VPS: runner, Secrets: box, DBMode: cfg.OdooDBMode}
+	h.Provision = &provision.Provisioner{DB: accounts, VPS: runner, Secrets: box, DBMode: cfg.OdooDBMode, DashboardURL: cfg.DashboardURL}
 	h.AI = ai.New(cfg.AnthropicAPIKey, cfg.AnthropicModel, func(ctx context.Context, u ai.Usage) {
 		// Detached: the request's context may be gone by the time we write.
 		err := db.RecordTokenUsage(context.WithoutCancel(ctx), accounts, db.TokenUsage{
@@ -61,7 +61,18 @@ func (h *Handler) ProvisionAccount(ctx context.Context, accountID string) (provi
 	if err != nil {
 		return provision.Account{}, err
 	}
-	return provision.Account{ID: acc.ID, ClientID: acc.SiteID, Company: acc.CompanyName, Plan: acc.Plan}, nil
+	pacc := provision.Account{ID: acc.ID, ClientID: acc.SiteID, Company: acc.CompanyName, Plan: acc.Plan}
+	users, err := db.ListUsersByAccount(ctx, h.Accounts, accountID)
+	if err != nil {
+		return provision.Account{}, err
+	}
+	for _, u := range users {
+		if u.Role == "owner" {
+			pacc.OwnerEmail, pacc.OwnerName = u.Email, u.DisplayName
+			break
+		}
+	}
+	return pacc, nil
 }
 
 func (h *Handler) accessTTL() time.Duration {

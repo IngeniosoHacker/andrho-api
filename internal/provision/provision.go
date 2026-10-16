@@ -23,6 +23,7 @@ import (
 	"log"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -76,12 +77,16 @@ func (r *Request) Fill(modules []string, phone string) {
 	}
 }
 
-// Account is who the jobs are for.
+// Account is who the jobs are for. The owner's email and name become the
+// ERP's administrator: they enter it from the dashboard, never with an
+// Odoo password.
 type Account struct {
-	ID       string
-	ClientID string // site_id
-	Company  string
-	Plan     string
+	ID         string
+	ClientID   string // site_id
+	Company    string
+	Plan       string
+	OwnerEmail string
+	OwnerName  string
 }
 
 // Brief is the brand information Creators get with a website task.
@@ -104,6 +109,9 @@ type Provisioner struct {
 	// server, a database per client), "dedicated" (a server per client) or
 	// "mixed" (dedicated for Galáctico, shared for the rest).
 	DBMode string
+	// DashboardURL is where the ERP sends people back to (its login page,
+	// logout and "Volver a AndRho").
+	DashboardURL string
 }
 
 // Statuses.
@@ -226,27 +234,42 @@ func (p *Provisioner) Run(ctx context.Context, acc Account, j db.ProvisioningJob
 			set(StatusWaitingVPS, "Tu ERP se crea en cuanto el servidor de AndRho esté conectado.", nil, false)
 			return
 		}
-		set(StatusRunning, "Levantando Odoo y PostgreSQL…", nil, false)
-		out, err := p.VPS.Run(ctx, "odoo/provision-client.sh", map[string]string{
+		set(StatusRunning, "Preparando tu ERP…", nil, false)
+		_ = db.SetJobProgress(ctx, p.DB, j.ID, 1, "Preparando tu ERP…")
+		env := map[string]string{
 			"DB_MODE": erp.DBMode, "ODOO_MODULES": strings.Join(erp.modules(), ","),
+			"OWNER_EMAIL": strings.ToLower(acc.OwnerEmail), "OWNER_NAME": acc.OwnerName, "DASHBOARD_URL": p.DashboardURL,
+		}
+		out, err := p.VPS.RunLines(ctx, "odoo/provision-client.sh", env, func(line string) {
+			if pct, text, ok := parseProgress(line); ok {
+				_ = db.SetJobProgress(ctx, p.DB, j.ID, pct, text+"…")
+			}
 		}, acc.ClientID, acc.Company)
 		if err != nil {
 			set(StatusError, "No pudimos crear tu ERP todavía; lo reintentamos solos.", map[string]string{"error": err.Error()}, true)
 			return
 		}
-		var res struct{ URL, DB, Login, Password string }
+		var res struct {
+			URL, DB, Login, Password string
+			SSOSecret                string `json:"sso_secret"`
+		}
 		if err := json.Unmarshal([]byte(vps.LastJSONLine(out)), &res); err != nil || res.URL == "" {
 			set(StatusError, "El servidor no devolvió los datos del ERP.", map[string]string{"error": "bad script output"}, true)
 			return
 		}
-		sealed, err := p.Secrets.Seal(res.Password)
+		conn := db.OdooConnection{AccountID: acc.ID, URL: res.URL, DBName: res.DB, Login: res.Login}
+		conn.Secret, err = p.Secrets.Seal(res.Password)
+		if err == nil && res.SSOSecret != "" {
+			conn.SSOSecret, err = p.Secrets.Seal(res.SSOSecret)
+		}
 		if err == nil {
-			err = db.SaveOdooConnection(ctx, p.DB, db.OdooConnection{AccountID: acc.ID, URL: res.URL, DBName: res.DB, Login: res.Login, Secret: sealed})
+			err = db.SaveOdooConnection(ctx, p.DB, conn)
 		}
 		if err != nil {
 			set(StatusError, "No pudimos guardar el acceso a tu ERP.", map[string]string{"error": err.Error()}, true)
 			return
 		}
+		_ = db.SetJobProgress(ctx, p.DB, j.ID, 100, "Tu ERP está listo.")
 		set(StatusDone, "Tu ERP está listo.", map[string]string{"url": res.URL, "db": res.DB, "login": res.Login}, true)
 
 	case "whatsapp":
@@ -283,6 +306,20 @@ func (p *Provisioner) Run(ctx context.Context, acc Account, j db.ProvisioningJob
 		}
 		set(StatusRunning, detail, map[string]string{"task_id": task.ID}, true)
 	}
+}
+
+// parseProgress reads a script's "PROGRESS <0-100> <text>" line.
+func parseProgress(line string) (int, string, bool) {
+	rest, ok := strings.CutPrefix(line, "PROGRESS ")
+	if !ok {
+		return 0, "", false
+	}
+	num, text, _ := strings.Cut(rest, " ")
+	pct, err := strconv.Atoi(num)
+	if err != nil {
+		return 0, "", false
+	}
+	return pct, strings.TrimSpace(text), true
 }
 
 func str(v any) string {
