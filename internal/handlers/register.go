@@ -206,7 +206,8 @@ func (h *Handler) Register(c *gin.Context) {
 		return
 	}
 
-	// The register(erp, meta, whatsapp, web_page) of the spec: whatever the
+	// The ERP always (with the Odoo modules for these modules), and meta,
+	// whatsapp, web_page: whatever the
 	// request left empty is filled from the modules and the phone.
 	pr := req.Provision
 	pr.Fill(modules, setup.Phone)

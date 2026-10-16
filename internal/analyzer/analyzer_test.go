@@ -25,6 +25,9 @@ func TestAnalyzePackages(t *testing.T) {
 		if p.ModuleLimit >= 0 && len(p.Modules) > p.ModuleLimit {
 			t.Errorf("%s holds %d modules, limit %d", p.Key, len(p.Modules), p.ModuleLimit)
 		}
+		if len(p.OdooModules) == 0 || p.OdooModules[0] != "stock" {
+			t.Errorf("%s: the ERP must start with inventory, got %v", p.Key, p.OdooModules)
+		}
 		if len(p.Modules)+len(p.Missing) != len(r.Needs) {
 			t.Errorf("%s: modules+missing != needs", p.Key)
 		}

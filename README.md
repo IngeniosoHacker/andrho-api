@@ -265,20 +265,38 @@ and custom, end here:
   "answers": { "...survey answers, optional" }, "description": "optional",
   "phone": "+502 5555 5555",
   "brand": { "essence": "...", "help": false, "logo": "data:image/png;base64,..." },
-  "provision": { "erp": "", "meta": "", "whatsapp": "", "web_page": null } }
+  "provision": { "meta": "", "whatsapp": "", "web_page": null } }
 ```
 
 It creates the account (its `site_id` is the **client id** every service is
 named after) and the owner, stores the setup (`account_setup`, logo ≤ 1 MB,
-PNG/JPG/WebP) and provisions the services (`internal/provision`). The
-`provision` fields are optional: whatever is left empty is filled from what
-matches it, a module needing the ERP sets `erp: "yes"`, the WhatsApp module
-takes `phone`, the website module sets `web_page`. Each service becomes a
-job in `provisioning_jobs`, run in the background:
+PNG/JPG/WebP) and provisions the services (`internal/provision`).
+
+Every account gets an ERP: Odoo with inventory (`stock`) as its base, plus
+the Odoo apps its modules need (`analyzer.OdooModules`; the analysis shows
+them per package as `odoo_modules`):
+
+| AndRho module | Odoo modules |
+| --- | --- |
+| *(always)* | `stock` |
+| `ventas` | `point_of_sale` |
+| `vencimientos` | `product_expiry` |
+| `compras` | `purchase` |
+| `produccion` | `mrp` |
+| `finanzas` | `account` |
+| `rrhh` | `hr` |
+| `logistica`, `rutas` | `stock_delivery` |
+| `agenda`, `citas` | `calendar` |
+| `clientes` | `crm` |
+
+The other `provision` fields are optional: whatever is left empty is filled
+from what matches it, the WhatsApp module takes `phone`, the website module
+sets `web_page`. Each service becomes a job in `provisioning_jobs`, run in
+the background:
 
 | Job | What it does | Waits for |
 | --- | --- | --- |
-| `erp` | Odoo + PostgreSQL on the VPS (`VPS/odoo/provision-client.sh` over SSH); the access is stored in `odoo_connections`, password encrypted with `SECRETS_KEY` | `VPS_*` (`esperando_vps`) |
+| `erp` | Odoo + PostgreSQL on the VPS (`VPS/odoo/provision-client.sh` over SSH, `ODOO_MODULES` = the list above, image built from `andrho_odoo`); the access is stored in `odoo_connections`, password encrypted with `SECRETS_KEY` | `VPS_*` (`esperando_vps`) |
 | `whatsapp` | The client in AndRho's WhatsApp solution (`VPS/whatsapp/register-client.sh`) | the VPS, then Meta (`esperando_meta`) |
 | `website` | A website task for Creators (`creator_tasks`) with the brand brief, assigned to the first creator | — |
 | `meta` | Nothing yet | Meta's Tech Provider approval |

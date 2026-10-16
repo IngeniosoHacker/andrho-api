@@ -10,8 +10,11 @@ import (
 // this business and the ones it leaves out.
 type Package struct {
 	Plan
-	Modules     []Module `json:"modules"`
-	Missing     []Module `json:"missing"`
+	Modules []Module `json:"modules"`
+	Missing []Module `json:"missing"`
+	// OdooModules is what this package installs in the client's ERP:
+	// inventory always, plus what its modules need (OdooModules).
+	OdooModules []string `json:"odoo_modules"`
 	Recommended bool     `json:"recommended"`
 	// Pitch is the line under the package. Smaller packages speak of what
 	// stays behind; the complete one, of what's gained.
@@ -56,6 +59,11 @@ func Analyze(a recommend.Answers) Result {
 				pkg.Missing = append(pkg.Missing, m)
 			}
 		}
+		keys := make([]string, len(pkg.Modules))
+		for i, m := range pkg.Modules {
+			keys[i] = m.Key
+		}
+		pkg.OdooModules = OdooModules(keys)
 		pkg.Recommended = p.Key == res.Recommended
 		pkg.Pitch = pitch(pkg, len(needs))
 		res.Packages = append(res.Packages, pkg)

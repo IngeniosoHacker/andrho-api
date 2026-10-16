@@ -96,3 +96,44 @@ var Plans = []Plan{
 // planByRecommendation maps the survey's plans (internal/recommend) to the
 // account plans.
 var planByRecommendation = map[string]string{"basico": "despegue", "crecer": "en_orbita", "todo": "galactico"}
+
+// Every account gets an ERP: Odoo with inventory as its base. BaseOdooModules
+// is what every client's database installs; odooByModule adds the Odoo apps
+// each AndRho module needs on top. Modules not listed live outside Odoo
+// (analysis, marketing, the website, WhatsApp) or ride on stock itself
+// (mermas are stock scraps). Names are Odoo 19 Community technical names,
+// the ones VPS/odoo/provision-client.sh passes to `odoo -i`.
+var BaseOdooModules = []string{"stock"}
+
+var odooByModule = map[string][]string{
+	"ventas":       {"point_of_sale"},
+	"vencimientos": {"product_expiry"},
+	"compras":      {"purchase"},
+	"produccion":   {"mrp"},
+	"finanzas":     {"account"},
+	"rrhh":         {"hr"},
+	"logistica":    {"stock_delivery"},
+	"rutas":        {"stock_delivery"},
+	"agenda":       {"calendar"},
+	"citas":        {"calendar"},
+	"clientes":     {"crm"},
+}
+
+// OdooModules is the list of Odoo modules for the AndRho modules in keys:
+// the base first, then each module's apps in keys' order, without repeats.
+func OdooModules(keys []string) []string {
+	out := append([]string{}, BaseOdooModules...)
+	seen := map[string]bool{}
+	for _, m := range out {
+		seen[m] = true
+	}
+	for _, k := range keys {
+		for _, m := range odooByModule[k] {
+			if !seen[m] {
+				seen[m] = true
+				out = append(out, m)
+			}
+		}
+	}
+	return out
+}

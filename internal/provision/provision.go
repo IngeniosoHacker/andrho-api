@@ -3,12 +3,14 @@
 // created here is named after it, which is how the account, its dashboard
 // and all its AndRho branches stay connected.
 //
-// A Request has one optional field per service. Empty fields are filled by
-// Fill from whatever in the signup matches them (the modules picked, the
-// phone given); a field set explicitly wins. Then each service becomes a
-// provisioning job:
+// Every account gets an ERP: Odoo with inventory as its base, plus the Odoo
+// apps its modules need (analyzer.OdooModules). The other services are one
+// optional field each in a Request. Empty fields are filled by Fill from
+// whatever in the signup matches them (the modules picked, the phone given);
+// a field set explicitly wins. Then each service becomes a provisioning job:
 //
-//	erp      = "yes"  -> Odoo + PostgreSQL on the VPS (VPS/odoo/provision-client.sh)
+//	erp      (always) -> Odoo + PostgreSQL on the VPS with OdooModules
+//	                     (VPS/odoo/provision-client.sh, image from andrho_odoo)
 //	whatsapp = number -> the client in AndRho's WhatsApp solution (VPS/whatsapp/register-client.sh)
 //	web_page = true   -> a website task for Creators, with the brand brief
 //	meta     = id     -> waits for AndRho's approval as a Meta Tech Provider
@@ -20,6 +22,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -34,20 +37,21 @@ import (
 
 // Request is what to set up. Every field may be left empty.
 type Request struct {
-	ERP      string `json:"erp"`      // "yes" creates the ERP; "no" skips it even if a module asks for it
-	Meta     string `json:"meta"`     // Facebook/Instagram page id, when known
-	WhatsApp string `json:"whatsapp"` // the business' WhatsApp number
-	WebPage  *bool  `json:"web_page"` // a website built by Creators
+	// OdooModules is what the ERP installs. Fill sets it from the modules
+	// (analyzer.OdooModules); it always starts with inventory.
+	OdooModules []string `json:"-"`
+	Meta        string   `json:"meta"`     // Facebook/Instagram page id, when known
+	WhatsApp    string   `json:"whatsapp"` // the business' WhatsApp number
+	WebPage     *bool    `json:"web_page"` // a website built by Creators
 }
 
 var phoneRe = regexp.MustCompile(`^\+?[0-9 ()-]{7,20}$`)
 
-// Fill completes the empty fields from what matches them: a module that
-// needs the ERP (analyzer.Module.Provision == "erp") sets ERP, the WhatsApp
-// module takes the phone, the website module sets WebPage, the social
-// modules mark Meta as wanted.
+// Fill completes the request from the modules picked: the ERP's Odoo
+// modules, the WhatsApp module takes the phone, the website module sets
+// WebPage, the social modules mark Meta as wanted.
 func (r *Request) Fill(modules []string, phone string) {
-	r.ERP = normalizeYes(r.ERP)
+	r.OdooModules = analyzer.OdooModules(modules)
 	has := func(provision string) bool {
 		for _, k := range modules {
 			if m, ok := analyzer.Modules[k]; ok && m.Provision == provision {
@@ -55,9 +59,6 @@ func (r *Request) Fill(modules []string, phone string) {
 			}
 		}
 		return false
-	}
-	if r.ERP == "" && has("erp") {
-		r.ERP = "yes"
 	}
 	if r.WhatsApp == "" && has("whatsapp") {
 		r.WhatsApp = strings.TrimSpace(phone)
@@ -73,16 +74,6 @@ func (r *Request) Fill(modules []string, phone string) {
 			}
 		}
 	}
-}
-
-func normalizeYes(v string) string {
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "yes", "si", "sí", "true", "1":
-		return "yes"
-	case "no", "false", "0":
-		return "no"
-	}
-	return ""
 }
 
 // Account is who the jobs are for.
@@ -131,10 +122,12 @@ func (p *Provisioner) Plan(ctx context.Context, acc Account, req Request, brief 
 		kind, status, detail string
 		input                any
 	}
-	var specs []spec
-	if req.ERP == "yes" {
-		specs = append(specs, spec{"erp", StatusPending, "Odoo y PostgreSQL para tu cuenta", map[string]string{"db_mode": p.dbModeFor(acc.Plan)}})
+	odooModules := req.OdooModules
+	if len(odooModules) == 0 {
+		odooModules = analyzer.OdooModules(nil)
 	}
+	specs := []spec{{"erp", StatusPending, "Tu ERP con inventario y los módulos de tu negocio",
+		erpInput{DBMode: p.dbModeFor(acc.Plan), OdooModules: odooModules}}}
 	if req.WhatsApp != "" {
 		if !phoneRe.MatchString(req.WhatsApp) {
 			return nil, fmt.Errorf("provision: invalid WhatsApp number")
@@ -161,6 +154,27 @@ func (p *Provisioner) Plan(ctx context.Context, acc Account, req Request, brief 
 		jobs = append(jobs, j)
 	}
 	return jobs, nil
+}
+
+// erpInput is the erp job's input: how its PostgreSQL is laid out and the
+// Odoo modules to install.
+type erpInput struct {
+	DBMode      string   `json:"db_mode"`
+	OdooModules []string `json:"odoo_modules"`
+}
+
+var odooModuleRe = regexp.MustCompile(`^[a-z0-9_]{1,64}$`)
+
+// modules is the list to install, never without the base: jobs created
+// before the list existed (or with a bad name in it) get inventory.
+func (e erpInput) modules() []string {
+	out := analyzer.OdooModules(nil)
+	for _, m := range e.OdooModules {
+		if odooModuleRe.MatchString(m) && !slices.Contains(out, m) {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 func (p *Provisioner) dbModeFor(plan string) string {
@@ -203,6 +217,8 @@ func (p *Provisioner) Run(ctx context.Context, acc Account, j db.ProvisioningJob
 	}
 	var input map[string]any
 	_ = json.Unmarshal(j.Input, &input)
+	var erp erpInput
+	_ = json.Unmarshal(j.Input, &erp)
 
 	switch j.Kind {
 	case "erp":
@@ -211,7 +227,9 @@ func (p *Provisioner) Run(ctx context.Context, acc Account, j db.ProvisioningJob
 			return
 		}
 		set(StatusRunning, "Levantando Odoo y PostgreSQL…", nil, false)
-		out, err := p.VPS.Run(ctx, "odoo/provision-client.sh", map[string]string{"DB_MODE": str(input["db_mode"])}, acc.ClientID, acc.Company)
+		out, err := p.VPS.Run(ctx, "odoo/provision-client.sh", map[string]string{
+			"DB_MODE": erp.DBMode, "ODOO_MODULES": strings.Join(erp.modules(), ","),
+		}, acc.ClientID, acc.Company)
 		if err != nil {
 			set(StatusError, "No pudimos crear tu ERP todavía; lo reintentamos solos.", map[string]string{"error": err.Error()}, true)
 			return
