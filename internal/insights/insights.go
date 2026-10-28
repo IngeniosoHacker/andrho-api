@@ -539,7 +539,7 @@ func translate(ctx context.Context, client *ai.Client, accountID, section string
 			Titulo, Cuerpo, Evidencia string
 		} `json:"sugerencias"`
 	}
-	if err := client.JSON(ctx, "insights", accountID, translateSystem, string(in), 700, &out); err != nil {
+	if err := client.JSON(ctx, "insights", accountID, ai.WithContext(translateSystem), string(in), 700, &out); err != nil {
 		return "", nil, err
 	}
 	if strings.TrimSpace(out.Resumen) == "" {

@@ -56,7 +56,7 @@ already owns and migrates its own schema.
 | `ALLOWED_ORIGINS`           | `*`     | CSV of allowed CORS origins for `/auth/*`. `*` or unset allows every origin (dev default — **restrict this to `andrho-tracker-dashboard`'s real domain in production**). |
 | `GITHUB_REPOS`              | the 3 AndRho repos | CSV of `owner/name` repos merged by `GET /progress`. |
 | `GITHUB_TOKEN`              | —       | Optional GitHub token for `GET /progress` (lifts the 60/hour anonymous limit). |
-| `ANTHROPIC_API_KEY`         | —       | Optional. Enables Claude (`internal/ai`): the Analyzer's description reading, and later the dashboard's AndRho panel. Without it, rule-based fallbacks. |
+| `ANTHROPIC_API_KEY`         | —       | Optional. Enables Claude (`internal/ai`): the signup's description reading and suggestion, the dashboard's insights, and later the AndRho panel. Without it, rule-based fallbacks. |
 | `ANTHROPIC_MODEL`           | `claude-sonnet-5-5` | Model for those calls. |
 | `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_HOST_KEY`, `VPS_SCRIPTS_DIR` | — | The remote VPS where provisioning scripts run over SSH (see `../VPS/README.md`). Without `VPS_HOST`, ERP and WhatsApp provisioning wait for it. |
 | `ODOO_ALLOW_PRIVATE`        | — | `true` lets `POST /account/erp` reach private addresses (development only). |
@@ -393,15 +393,35 @@ For AndRho's own team (`staff` table, from `ANDRHO_ADMINS` /
   `PATCH /creators/tasks/:id` with `action` `aceptar` | `entregar`
   (`delivery_url` required) | `liberar`. `GET /creators/tasks/:id/logo`.
 
-### `POST /analyzer` and `POST /analyzer/describe`
+### `POST /analyzer`, `/analyzer/describe` and `/analyzer/suggest`
 
-Public, rate-limited per IP (120/h and 20/h). The Analyzer
+Public, rate-limited per IP (120/h, 20/h and 30/h). The Analyzer
 (`internal/analyzer`) turns what a business tells us into the AndRho setup
-it needs. `/analyzer` takes the survey's answers (same body as
-`/waitlist/recommendation`); `/analyzer/describe` takes
-`{ "description": "..." }`, a paragraph about the business, and reads it
-into answers with Claude (`ANTHROPIC_API_KEY`) or, without it, keyword
-rules (`description.source` says which). Both return:
+it needs.
+
+- `/analyzer/describe` takes `{ "description": "..." }`, the signup's quick
+  setup paragraph, and reads it with Claude (`ANTHROPIC_API_KEY`) or,
+  without it, keyword rules (`description.source` says which) into
+  `description.answers` (the survey's answers, sector questions included),
+  `contact` (name, company, email, phone: the boarding pass), `brand`
+  (`essence`, `has_brand`), `details` (website, current software, what to
+  improve) and a `summary`. The signup then asks only the questions the
+  paragraph didn't answer. It also returns the rules' `analysis` of those
+  answers.
+- `/analyzer/suggest` is the signup's suggestion, made once everything is
+  asked: the survey's answers (same body as `/analyzer`, plus
+  `websiteUrl`, `currentSoftware`, `improvement`, `satisfactionReason`),
+  `description` and `brand: {choice, essence}`. The rules rank the modules
+  and pick the plan that fits; Claude ranks them again with the project
+  context and explains each one; the two are blended (`analyzer.blend`:
+  Borda average for the order; Claude's modules stay, rule-only ones need
+  the rules' top half; the areas the business asked for always stay; the
+  plan meets halfway). Adds `summary`, `module_reasons` (by key) and
+  `source` (`ia` or `reglas`). Without Claude, it's `/analyzer`.
+- `/analyzer` takes the survey's answers (same body as
+  `/waitlist/recommendation`) and applies only the rules.
+
+All return:
 
 - `needs`: every module the business needs, most important first.
 - `packages`: Despegue (3 modules), En Órbita (6) and Galáctico (all, plus
@@ -411,6 +431,15 @@ rules (`description.source` says which). Both return:
   `best_fit` + `reasons`: the plan that strictly fits the answers.
 
 Every Claude call records its tokens in `token_usage` (source `analyzer`).
+
+### Project context for Claude
+
+Every Claude prompt starts with `internal/ai/context/andrho.md` (embedded
+in the binary; `ai.WithContext`): what AndRho is, what the site, the signup
+and the dashboard do today, who the clients are and how to talk to them.
+The module and plan catalog is not in it: prompts that need it get it from
+`internal/analyzer/catalog.go`. **When a feature ships or changes, update
+that file.**
 
 ### Articles: `GET|POST /articles`, `GET|PUT|DELETE /articles/:id`
 

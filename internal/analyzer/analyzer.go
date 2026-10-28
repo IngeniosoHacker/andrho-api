@@ -33,23 +33,36 @@ type Result struct {
 	Recommended string   `json:"recommended"`
 	BestFit     string   `json:"best_fit"`
 	Reasons     []string `json:"reasons"`
+	// Set by Suggest: what Claude understood of the business, why each
+	// module is there (by key) and whether Claude took part ("ia") or the
+	// rules worked alone ("reglas").
+	Summary       string            `json:"summary,omitempty"`
+	ModuleReasons map[string]string `json:"module_reasons,omitempty"`
+	Source        string            `json:"source,omitempty"`
 }
 
 // Analyze builds the needs and the three packages for a's answers.
 func Analyze(a recommend.Answers) Result {
 	rec := recommend.Recommend(a)
+	return build(ruleNeeds(a), planByRecommendation[rec.Plan], rec.Reasons)
+}
 
-	// Priority order comes from recommend.SuggestModules (what the answers
-	// point to first, then the areas the business asked for). Creators is
-	// part of Galáctico's core, not a module to count.
+// ruleNeeds is the rules' ranking: recommend.SuggestModules's order (what
+// the answers point to first, then the areas the business asked for).
+// Creators is part of Galáctico's core, not a module to count.
+func ruleNeeds(a recommend.Answers) []Module {
 	var needs []Module
 	for _, key := range recommend.SuggestModules(a, recommend.PlanTodo) {
 		if m, ok := Modules[key]; ok && key != "creators" {
 			needs = append(needs, m)
 		}
 	}
+	return needs
+}
 
-	res := Result{Needs: needs, Recommended: "galactico", BestFit: planByRecommendation[rec.Plan], Reasons: rec.Reasons}
+// build fills the three packages with needs, in order.
+func build(needs []Module, bestFit string, reasons []string) Result {
+	res := Result{Needs: needs, Recommended: "galactico", BestFit: bestFit, Reasons: reasons}
 	for _, p := range Plans {
 		pkg := Package{Plan: p, Modules: []Module{}, Missing: []Module{}}
 		for i, m := range needs {

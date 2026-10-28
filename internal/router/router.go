@@ -50,11 +50,12 @@ func New(h *handlers.Handler) *gin.Engine {
 	r.POST("/waitlist", middleware.WaitlistRateLimit(h.Redis), h.CreateWaitlistSubmission)
 	r.POST("/waitlist/recommendation", middleware.RecommendationRateLimit(h.Redis), h.RecommendPlan)
 
-	// Public: the Analyzer (internal/analyzer). The signup's custom setup
-	// posts the survey's answers; the quick setup, a description of the
-	// business. Both get the needed modules and three packages.
+	// Public: the Analyzer (internal/analyzer). The quick setup's paragraph
+	// is read by /describe; once everything is asked, /suggest blends the
+	// rules with Claude into the needed modules and three packages.
 	r.POST("/analyzer", middleware.AnalyzerRateLimit(h.Redis), h.Analyze)
 	r.POST("/analyzer/describe", middleware.DescribeRateLimit(h.Redis), h.Describe)
+	r.POST("/analyzer/suggest", middleware.SuggestRateLimit(h.Redis), h.Suggest)
 
 	// Public: the development progress shown on andrho's landing -- commits
 	// of every AndRho repo, merged and cached (internal/progress).

@@ -55,6 +55,13 @@ func New(key, model string, record Recorder) *Client {
 	}
 }
 
+// WithURL points the client at another Messages API endpoint (a test
+// server, a proxy).
+func (c *Client) WithURL(url string) *Client {
+	c.url = url
+	return c
+}
+
 // Enabled reports whether calls can be made.
 func (c *Client) Enabled() bool { return c != nil && c.key != "" }
 

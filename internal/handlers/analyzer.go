@@ -48,3 +48,36 @@ func (h *Handler) Describe(c *gin.Context) {
 	d := analyzer.Describe(c.Request.Context(), h.AI, text)
 	c.JSON(http.StatusOK, gin.H{"description": d, "analysis": analyzer.Analyze(d.Answers)})
 }
+
+type suggestRequest struct {
+	recommend.Answers
+	analyzer.Details
+	Description string `json:"description"`
+	Brand       struct {
+		Choice  string `json:"choice"`
+		Essence string `json:"essence"`
+	} `json:"brand"`
+}
+
+// Suggest handles POST /analyzer/suggest: everything the signup asked (the
+// survey's answers, the description if there was one, the brand) -> the
+// rules' analysis blended with Claude's (analyzer.Suggest). Public, like
+// /analyzer: the account doesn't exist yet.
+func (h *Handler) Suggest(c *gin.Context) {
+	var req suggestRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if utf8.RuneCountInString(req.Description) > analyzer.MaxDescription {
+		respondError(c, http.StatusBadRequest, "la descripción no puede pasar de 2000 caracteres")
+		return
+	}
+	if utf8.RuneCountInString(req.Brand.Essence) > maxBrandEssence {
+		respondError(c, http.StatusBadRequest, "la esencia de tu marca no puede pasar de 1000 caracteres")
+		return
+	}
+	in := analyzer.SuggestInput{Answers: req.Answers, Details: req.Details, Description: strings.TrimSpace(req.Description)}
+	in.Brand.Choice, in.Brand.Essence = req.Brand.Choice, strings.TrimSpace(req.Brand.Essence)
+	c.JSON(http.StatusOK, analyzer.Suggest(c.Request.Context(), h.AI, in))
+}

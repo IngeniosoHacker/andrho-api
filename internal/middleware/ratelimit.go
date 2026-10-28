@@ -125,6 +125,12 @@ func DescribeRateLimit(rdb *redis.Client) gin.HandlerFunc {
 	return RateLimit(rdb, "describe", 20, time.Hour)
 }
 
+// SuggestRateLimit caps POST /analyzer/suggest per IP: it may call Claude,
+// and a signup can go back and forth between its last cards a few times.
+func SuggestRateLimit(rdb *redis.Client) gin.HandlerFunc {
+	return RateLimit(rdb, "suggest", 30, time.Hour)
+}
+
 // RegisterRateLimit caps POST /auth/register per IP: each one creates an
 // account and may start services on the VPS.
 func RegisterRateLimit(rdb *redis.Client) gin.HandlerFunc {
