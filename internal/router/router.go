@@ -141,6 +141,7 @@ func New(h *handlers.Handler) *gin.Engine {
 		adminGroup.GET("/game", h.AdminGame)
 		adminGroup.GET("/tokens", h.AdminTokens)
 		adminGroup.POST("/tokens", h.ImportTokens)
+		adminGroup.POST("/accounts/:site_id/erp", h.AdminProvisionERP)
 	}
 	creatorsGroup := r.Group("/creators")
 	creatorsGroup.Use(requireAuth, h.RequireStaff("creator"))

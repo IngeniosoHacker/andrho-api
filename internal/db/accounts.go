@@ -50,6 +50,13 @@ func GetAccountByID(ctx context.Context, pool *pgxpool.Pool, id string) (models.
 		 FROM accounts WHERE id = $1`, id))
 }
 
+// GetAccountBySiteID fetches an account by its site_id (the client id).
+func GetAccountBySiteID(ctx context.Context, pool *pgxpool.Pool, siteID string) (models.Account, error) {
+	return scanAccount(pool.QueryRow(ctx,
+		`SELECT id, email, password_hash, company_name, site_id, odoo_company_id, plan, created_at, updated_at
+		 FROM accounts WHERE site_id = $1`, siteID))
+}
+
 // DeleteAccount removes an account row (cascades to its users/refresh_tokens/
 // suggestions/account_events via FK ON DELETE CASCADE). Only used today as a
 // best-effort rollback in Signup when creating the account's first user fails.

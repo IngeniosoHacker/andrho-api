@@ -389,6 +389,13 @@ For AndRho's own team (`staff` table, from `ANDRHO_ADMINS` /
   `POST /admin/tokens` `{source, entries:[{date, model, input_tokens,
   output_tokens, note}]}` records usage the product doesn't see by itself
   (the team's development usage, by day).
+- `POST /admin/accounts/:site_id/erp`: creates (or retries) the ERP of an
+  account that has none: accounts from before provisioning existed, like
+  AndRho's own (`ANDRHO_SITE_ID`), or whose job gave up after 5 attempts.
+  Same job as the signup (progress, credentials and SSO saved); `409` if the
+  account already has its ERP or its job is pending, running or done,
+  because provisioning a client twice resets its admin password and SSO
+  secret. `202` with the job otherwise.
 - `GET /creators/tasks`: open tasks plus the creator's own (admins: all).
   `PATCH /creators/tasks/:id` with `action` `aceptar` | `entregar`
   (`delivery_url` required) | `liberar`. `GET /creators/tasks/:id/logo`.
