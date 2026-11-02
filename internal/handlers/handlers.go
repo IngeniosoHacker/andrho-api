@@ -13,6 +13,7 @@ import (
 	"github.com/IngeniosoHacker/andrho-api/internal/config"
 	"github.com/IngeniosoHacker/andrho-api/internal/db"
 	"github.com/IngeniosoHacker/andrho-api/internal/provision"
+	"github.com/IngeniosoHacker/andrho-api/internal/rstats"
 	"github.com/IngeniosoHacker/andrho-api/internal/secret"
 	"github.com/IngeniosoHacker/andrho-api/internal/vps"
 )
@@ -26,6 +27,7 @@ type Handler struct {
 	AI       *ai.Client // disabled without ANTHROPIC_API_KEY
 	Provision *provision.Provisioner
 	Secrets   *secret.Box
+	Stats     *rstats.Client // R analyses for insights, run on the VPS
 }
 
 // New builds a Handler. AI calls record their tokens in token_usage. A bad
@@ -42,6 +44,7 @@ func New(accounts, tracker *pgxpool.Pool, rdb *redis.Client, cfg *config.Config)
 		return nil, err
 	}
 	h.Secrets = box
+	h.Stats = &rstats.Client{VPS: runner} // R for the Web insights, on the VPS
 	h.Provision = &provision.Provisioner{DB: accounts, VPS: runner, Secrets: box, DBMode: cfg.OdooDBMode, DashboardURL: cfg.DashboardURL}
 	h.AI = ai.New(cfg.AnthropicAPIKey, cfg.AnthropicModel, func(ctx context.Context, u ai.Usage) {
 		// Detached: the request's context may be gone by the time we write.

@@ -21,6 +21,7 @@ import (
 
 	"github.com/IngeniosoHacker/andrho-api/internal/ai"
 	"github.com/IngeniosoHacker/andrho-api/internal/odoo"
+	"github.com/IngeniosoHacker/andrho-api/internal/rstats"
 )
 
 // Finding is one fact the statistics found.
@@ -48,11 +49,13 @@ type Result struct {
 	GeneratedAt time.Time  `json:"generated_at"`
 }
 
-// Sources is where the data comes from; Odoo may be nil.
+// Sources is where the data comes from; Odoo may be nil. Stats runs the R
+// analyses (webstats.go); nil or unavailable means Go statistics only.
 type Sources struct {
 	Tracker *pgxpool.Pool
 	SiteID  string
 	Odoo    *odoo.Client
+	Stats   *rstats.Client
 }
 
 type analysis struct {
@@ -85,6 +88,7 @@ func Run(ctx context.Context, src Sources, client *ai.Client, accountID, section
 	switch section {
 	case "web":
 		web(ctx, src, &a)
+		webDeep(ctx, src, &a) // R: ANOVA + rank models (webstats.go)
 	case "inventario":
 		inventory(ctx, src, &a)
 	case "clientes":

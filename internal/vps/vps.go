@@ -109,6 +109,16 @@ func (r *Runner) Run(ctx context.Context, script string, env map[string]string, 
 // RunLines is Run, calling onLine with each line of stdout as it arrives
 // (the scripts' PROGRESS lines).
 func (r *Runner) RunLines(ctx context.Context, script string, env map[string]string, onLine func(string), args ...string) (string, error) {
+	return r.run(ctx, script, env, onLine, nil, args...)
+}
+
+// RunInput is Run with stdin: the scripts that take a JSON payload
+// (stats/run-r.sh, the R analyses for the insights pipeline).
+func (r *Runner) RunInput(ctx context.Context, script string, stdin []byte, args ...string) (string, error) {
+	return r.run(ctx, script, nil, nil, stdin, args...)
+}
+
+func (r *Runner) run(ctx context.Context, script string, env map[string]string, onLine func(string), stdin []byte, args ...string) (string, error) {
 	if !r.Enabled() {
 		return "", ErrDisabled
 	}
@@ -153,6 +163,9 @@ func (r *Runner) RunLines(ctx context.Context, script string, env map[string]str
 
 	var stdout, stderr bytes.Buffer
 	session.Stdout, session.Stderr = &lineWriter{all: &stdout, onLine: onLine}, &stderr
+	if stdin != nil {
+		session.Stdin = bytes.NewReader(stdin)
+	}
 	done := make(chan error, 1)
 	go func() { done <- session.Run(strings.Join(cmd, " ")) }()
 	select {

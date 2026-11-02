@@ -48,7 +48,7 @@ func (h *Handler) RunInsights(c *gin.Context) {
 		}
 	}
 
-	src := insights.Sources{Tracker: h.Tracker, SiteID: claims.SiteID}
+	src := insights.Sources{Tracker: h.Tracker, SiteID: claims.SiteID, Stats: h.Stats}
 	if cl, err := h.odooFor(ctx, claims.AccountID); err == nil {
 		src.Odoo = cl
 	}

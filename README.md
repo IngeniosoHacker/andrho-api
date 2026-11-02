@@ -58,6 +58,7 @@ already owns and migrates its own schema.
 | `GITHUB_TOKEN`              | —       | Optional GitHub token for `GET /progress` (lifts the 60/hour anonymous limit). |
 | `ANTHROPIC_API_KEY`         | —       | Optional. Enables Claude (`internal/ai`): the signup's description reading and suggestion, the dashboard's insights, and later the AndRho panel. Without it, rule-based fallbacks. |
 | `ANTHROPIC_MODEL`           | `claude-sonnet-5-5` | Model for those calls. |
+| `RSCRIPT_BIN`, `R_SCRIPTS_DIR` | `Rscript`, `stats` | Only for development: a local R used when `VPS_HOST` is unset. In production the Web section's R analyses run on the VPS (see below). |
 | `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_HOST_KEY`, `VPS_SCRIPTS_DIR` | — | The remote VPS where provisioning scripts run over SSH (see `../VPS/README.md`). Without `VPS_HOST`, ERP and WhatsApp provisioning wait for it. |
 | `ODOO_ALLOW_PRIVATE`        | — | `true` lets `POST /account/erp` reach private addresses (development only). |
 | `ODOO_DB_MODE`              | `shared` | `shared`, `dedicated` or `mixed` (dedicated for Galáctico). |
@@ -370,6 +371,45 @@ into plain language (it never computes numbers); otherwise rule-based text.
 New proposals are filed as suggestions (`sugerida`) once per title, within
 the plan's monthly quota (`quota_reached` tells when one was held back).
 `POST /suggestions {section}` asks for one more the same way.
+
+**Web section: statistics in R.** Opening Web also runs
+`internal/insights/webstats.go`, which calls two R scripts through
+`internal/rstats`. They run **on the VPS**, over the same SSH connection as
+the Odoo provisioning (`internal/vps`, `RunInput`): `VPS/stats/run-r.sh <name>`
+with the JSON payload on stdin, one process per analysis, 20 s timeout. The
+API on Railway needs no R.
+
+- `stats/web_anova.R` — multifactor ANOVA of engagement (time on site and
+  pages per visit on log scale, scroll depth) by traffic source, device,
+  landing page, weekday/weekend and country, plus the source×device and
+  landing×device interactions when their cells are populated. Type II sums
+  of squares (right for unbalanced web data), partial η², Tukey HSD between
+  levels, Brown-Forsythe and residual-skew checks, and a Kruskal-Wallis
+  cross-check. Run twice: all human visits, and Google visits only (which
+  landing pages Google sends people to that don't hold them).
+- `stats/seo_ranks.R` — per-keyword position trend (least-squares slope,
+  p-value) over 60 days of rank checks, and a factorial ANOVA of position on
+  on-page factors (keyword in title, in h1, word count band) across the
+  site's tracked keywords.
+
+Only effects that are significant (p < 0.05), non-trivial (partial η² ≥ 1%)
+and confirmed by the distribution-free test become findings, and each
+proposal carries its evidence (n, F, p, ratio) so the Claude translation
+can't inflate it.
+
+The scripts are versioned here in `stats/` and installed on the VPS next to
+`odoo/` and `whatsapp/` (the VPS needs `r-base-core` and `r-cran-jsonlite`):
+
+```sh
+install -d -o andrho -g andrho /opt/andrho/VPS/stats
+install -o andrho -g andrho -m 644 stats/*.R stats/run-r.sh /opt/andrho/VPS/stats/
+```
+
+Re-run that after changing a script. Without `VPS_HOST` (and no local R) the
+Web section keeps its Go statistics plus a plain week-over-week rank
+comparison.
+`go test ./internal/insights -run WebDeep` runs the whole thing against a
+seeded tracker database (see the test for the env vars).
 
 ### Staff: `/admin/*` and `/creators/*`
 
