@@ -272,16 +272,24 @@ type CreatorTask struct {
 	DeliveryURL string          `json:"delivery_url"`
 	Notes       string          `json:"notes"`
 	DueAt       *time.Time      `json:"due_at"`
+	// SuggestionID: the accepted suggestion this task does; Match: why the
+	// matching gave it to this Creator (internal/matching.Result).
+	SuggestionID *string        `json:"suggestion_id,omitempty"`
+	Match        json.RawMessage `json:"match,omitempty"`
 	CreatedAt   time.Time       `json:"created_at"`
 	UpdatedAt   time.Time       `json:"updated_at"`
 }
 
-const taskCols = `t.id, t.account_id, a.company_name, t.kind, t.title, t.brief, t.status, t.creator_id, t.delivery_url, t.notes, t.due_at, t.created_at, t.updated_at`
+const taskCols = `t.id, t.account_id, a.company_name, t.kind, t.title, t.brief, t.status, t.creator_id, t.delivery_url, t.notes, t.due_at, t.suggestion_id::text, t.match, t.created_at, t.updated_at`
 
 func scanTask(row pgx.Row) (CreatorTask, error) {
 	var t CreatorTask
+	var match []byte
 	err := row.Scan(&t.ID, &t.AccountID, &t.CompanyName, &t.Kind, &t.Title, &t.Brief, &t.Status, &t.CreatorID,
-		&t.DeliveryURL, &t.Notes, &t.DueAt, &t.CreatedAt, &t.UpdatedAt)
+		&t.DeliveryURL, &t.Notes, &t.DueAt, &t.SuggestionID, &match, &t.CreatedAt, &t.UpdatedAt)
+	if len(match) > 0 {
+		t.Match = match
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return t, ErrNotFound
 	}
@@ -297,10 +305,14 @@ func CreateCreatorTask(ctx context.Context, pool *pgxpool.Pool, t CreatorTask) (
 	if t.CreatorID != nil && *t.CreatorID != "" {
 		creator = *t.CreatorID
 	}
+	var match any
+	if len(t.Match) > 0 {
+		match = []byte(t.Match)
+	}
 	_, err := pool.Exec(ctx,
-		`INSERT INTO creator_tasks (id, account_id, kind, title, brief, status, creator_id, due_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		t.ID, t.AccountID, t.Kind, t.Title, t.Brief, t.Status, creator, t.DueAt)
+		`INSERT INTO creator_tasks (id, account_id, kind, title, brief, status, creator_id, due_at, suggestion_id, match)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		t.ID, t.AccountID, t.Kind, t.Title, t.Brief, t.Status, creator, t.DueAt, t.SuggestionID, match)
 	if err != nil {
 		return "", fmt.Errorf("db: create creator task: %w", err)
 	}
@@ -313,7 +325,7 @@ func ListCreatorTasks(ctx context.Context, pool *pgxpool.Pool, creatorID string)
 	q := `SELECT ` + taskCols + ` FROM creator_tasks t JOIN accounts a ON a.id = t.account_id`
 	args := []any{}
 	if creatorID != "" {
-		q += ` WHERE t.creator_id = $1 OR (t.creator_id IS NULL AND t.status = 'abierta')`
+		q += ` WHERE t.status <> 'cancelada' AND (t.creator_id = $1 OR (t.creator_id IS NULL AND t.status = 'abierta'))`
 		args = append(args, creatorID)
 	}
 	q += ` ORDER BY CASE t.status WHEN 'aceptada' THEN 0 WHEN 'abierta' THEN 1 ELSE 2 END, t.created_at`

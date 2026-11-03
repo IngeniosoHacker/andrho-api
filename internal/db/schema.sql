@@ -333,3 +333,26 @@ CREATE TABLE IF NOT EXISTS user_preferences (
   prefs      JSONB NOT NULL DEFAULT '{}',
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Suggestions carry what the business owner sees apart from the technical
+-- backing: `explain` is the "¿Por qué?" view (insights.Explain), `evidence`
+-- the statistics behind it (staff and the Creator doing the work only),
+-- `action` what accepting does (insights.Action). `report` stays the
+-- outcome told back to the owner when it's done.
+ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS evidence TEXT NOT NULL DEFAULT '';
+ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS explain JSONB;
+ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS action JSONB;
+-- Before `evidence` existed, the pipeline stored it in `report`: move it
+-- once, for suggestions that never got an outcome.
+UPDATE suggestions SET evidence = report, report = ''
+ WHERE evidence = '' AND report <> '' AND status IN ('sugerida', 'aceptada_en_proceso', 'rechazada');
+
+-- What each Creator does best, for internal/matching: web, social, erp,
+-- contenido, diseno (empty = generalist).
+ALTER TABLE staff ADD COLUMN IF NOT EXISTS skills TEXT[] NOT NULL DEFAULT '{}';
+
+-- A Creator task born from an accepted suggestion, and why it went to that
+-- Creator (the matching's score and reasons).
+ALTER TABLE creator_tasks ADD COLUMN IF NOT EXISTS suggestion_id UUID REFERENCES suggestions(id) ON DELETE SET NULL;
+ALTER TABLE creator_tasks ADD COLUMN IF NOT EXISTS match JSONB;
+CREATE INDEX IF NOT EXISTS idx_creator_tasks_suggestion ON creator_tasks (suggestion_id);

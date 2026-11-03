@@ -372,6 +372,35 @@ New proposals are filed as suggestions (`sugerida`) once per title, within
 the plan's monthly quota (`quota_reached` tells when one was held back).
 `POST /suggestions {section}` asks for one more the same way.
 
+**What the owner sees vs. the evidence.** Every proposal carries three
+parts, stored apart on the suggestion: `body` (what to do, plain words),
+`explain` (the "¿Por qué?" view: a headline, a chart — `comparacion`,
+`tendencia`, `proporcion`, `cambio` or `pasos` —, what it means for the
+business and how sure AndRho is, all in plain words) and `evidence` (the
+statistics: n, F, p…). `evidence` is never returned by `GET /suggestions`;
+only Creators see it, in their task's brief. When Claude rewrites the
+proposals it points each one at the computed proposal it's based on, so
+the picture and the action are never lost or invented.
+
+**Accepting a suggestion** (`PATCH /suggestions/:id/status` →
+`aceptada_en_proceso`, `internal/handlers/accept.go`) runs its `action`:
+
+- `erp_install`: AndRho installs the Odoo apps in the account's ERP itself
+  (`odoo.InstallModules`, in the background) and closes the suggestion when
+  done. Clientes and Prospectos propose this when the ERP lacks Ventas
+  (`point_of_sale`) or CRM (`crm`); these setup suggestions don't count
+  against the plan's monthly quota.
+- `creator` (the default): a Creator task assigned by `internal/matching`
+  (skill 3.0, availability 1.5, load −1.5, on-time record 1.0, knows the
+  client 1.0; see the package doc). The owner sees who took it; when the
+  Creator delivers, the suggestion closes with the link. Rejecting an
+  accepted suggestion cancels its task. Creators set their skills with
+  `GET|PUT /creators/skills` (web, social, erp, contenido, diseno). Website
+  tasks at signup use the same matching.
+
+CORS allows `GET, POST, PUT, PATCH, DELETE, OPTIONS`: before, `PATCH`/`DELETE`
+preflights were rejected and the browser reported "Failed to fetch".
+
 **Web section: statistics in R.** Opening Web also runs
 `internal/insights/webstats.go`, which calls two R scripts through
 `internal/rstats`. They run **on the VPS**, over the same SSH connection as

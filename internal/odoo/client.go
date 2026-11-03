@@ -44,6 +44,14 @@ type rpcError struct {
 }
 
 func (c *Client) rpc(ctx context.Context, service, method string, args []any, out any) error {
+	return c.rpcWith(ctx, c.http, service, method, args, out)
+}
+
+// installHTTP has no fixed timeout: installing an app takes minutes, and the
+// caller's context bounds it instead.
+var installHTTP = &http.Client{}
+
+func (c *Client) rpcWith(ctx context.Context, hc *http.Client, service, method string, args []any, out any) error {
 	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "method": "call", "id": 1,
 		"params": map[string]any{"service": service, "method": method, "args": args}})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL+"/jsonrpc", bytes.NewReader(body))
@@ -51,7 +59,7 @@ func (c *Client) rpc(ctx context.Context, service, method string, args []any, ou
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	res, err := c.http.Do(req)
+	res, err := hc.Do(req)
 	if err != nil {
 		return fmt.Errorf("odoo: %w", err)
 	}
@@ -176,4 +184,50 @@ func Str(v any) string {
 func Num(v any) float64 {
 	f, _ := v.(float64)
 	return f
+}
+
+// HasField reports whether model has field (some fields come with an app:
+// res.partner.customer_rank needs Invoicing, for example).
+func (c *Client) HasField(ctx context.Context, model, field string) bool {
+	var n int
+	err := c.Exec(ctx, "ir.model.fields", "search_count",
+		[]any{[]any{[]any{"model", "=", model}, []any{"name", "=", field}}}, nil, &n)
+	return err == nil && n > 0
+}
+
+// InstallModules installs the named Odoo apps that aren't installed yet
+// (with their dependencies) and returns which ones it installed. It needs an
+// administrator login and takes minutes: give it a long context.
+func (c *Client) InstallModules(ctx context.Context, names []string) ([]string, error) {
+	var mods []struct {
+		ID    int    `json:"id"`
+		Name  string `json:"name"`
+		State string `json:"state"`
+	}
+	if err := c.SearchRead(ctx, "ir.module.module", []any{[]any{"name", "in", names}}, []string{"name", "state"}, "", 0, &mods); err != nil {
+		return nil, err
+	}
+	ids, todo := []int{}, []string{}
+	for _, m := range mods {
+		if m.State != "installed" {
+			ids = append(ids, m.ID)
+			todo = append(todo, m.Name)
+		}
+	}
+	if len(mods) < len(names) {
+		return nil, fmt.Errorf("odoo: some modules don't exist in this Odoo: %v", names)
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	uid, err := c.Authenticate(ctx)
+	if err != nil {
+		return nil, err
+	}
+	err = c.rpcWith(ctx, installHTTP, "object", "execute_kw",
+		[]any{c.DB, uid, c.Password, "ir.module.module", "button_immediate_install", []any{ids}, map[string]any{}}, nil)
+	if err != nil {
+		return nil, err
+	}
+	return todo, nil
 }

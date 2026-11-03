@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -29,9 +30,20 @@ func (h *Handler) ListSuggestions(c *gin.Context) {
 		return
 	}
 
+	assigned, err := db.SuggestionAssignments(c.Request.Context(), h.Accounts, claims.AccountID)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "internal error")
+		return
+	}
 	out := make([]db.PublicSuggestion, 0, len(rows))
 	for _, s := range rows {
-		out = append(out, s.ToPublic())
+		p := s.ToPublic()
+		if a, ok := assigned[s.ID]; ok {
+			p.Assignment = &a
+		} else if s.Status == "aceptada_en_proceso" && suggestionAction(s).Type == "erp_install" {
+			p.Assignment = &db.SuggestionAssignment{Kind: "andrho", Status: "en_proceso"}
+		}
+		out = append(out, p)
 	}
 	c.JSON(http.StatusOK, gin.H{"suggestions": out})
 }
@@ -83,7 +95,7 @@ func (h *Handler) CreateSuggestion(c *gin.Context) {
 		}
 	}
 
-	src := insights.Sources{Tracker: h.Tracker, SiteID: claims.SiteID}
+	src := insights.Sources{Tracker: h.Tracker, SiteID: claims.SiteID, Stats: h.Stats}
 	if cl, err := h.odooFor(ctx, claims.AccountID); err == nil {
 		src.Odoo = cl
 	}
@@ -101,10 +113,7 @@ func (h *Handler) CreateSuggestion(c *gin.Context) {
 			continue
 		}
 		creator := claims.Sub
-		s, err = db.CreateSuggestion(ctx, h.Accounts, db.Suggestion{
-			ID: uuid.NewString(), AccountID: claims.AccountID, Section: section,
-			Status: "sugerida", Title: p.Title, Body: p.Body, Report: p.Evidence, CreatedBy: &creator,
-		})
+		s, err = db.CreateSuggestion(ctx, h.Accounts, proposalRow(claims.AccountID, section, p, &creator))
 		if err != nil {
 			respondError(c, http.StatusInternalServerError, "internal error")
 			return
@@ -161,13 +170,48 @@ func (h *Handler) UpdateSuggestionStatus(c *gin.Context) {
 		return
 	}
 
+	if req.Status == s.Status {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+		return
+	}
+	// Accepting starts the work (accept.go); only from "sugerida", so a
+	// double click can't create two Creator tasks.
+	if req.Status == "aceptada_en_proceso" && s.Status != "sugerida" {
+		respondError(c, http.StatusConflict, "esta sugerencia ya no está pendiente")
+		return
+	}
 	if err := db.UpdateSuggestionStatus(ctx, h.Accounts, id, req.Status); err != nil {
 		respondError(c, http.StatusInternalServerError, "internal error")
 		return
+	}
+	var assignment *db.SuggestionAssignment
+	if req.Status == "aceptada_en_proceso" {
+		assignment, err = h.acceptSuggestion(ctx, claims.AccountID, s)
+		if err != nil {
+			_ = db.UpdateSuggestionStatus(ctx, h.Accounts, id, s.Status)
+			respondError(c, http.StatusInternalServerError, "no pudimos asignar esta sugerencia; intenta de nuevo")
+			return
+		}
+	} else {
+		h.closeSuggestionTasks(ctx, id, req.Status)
 	}
 
 	_ = db.LogEvent(ctx, h.Accounts, uuid.NewString(), claims.AccountID, &claims.Sub, "suggestion_status_changed",
 		"\""+s.Title+"\" pasó a "+req.Status)
 
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	c.JSON(http.StatusOK, gin.H{"ok": true, "assignment": assignment})
+}
+
+// proposalRow is a computed proposal as a suggestion row: the owner-facing
+// text and explanation, the technical evidence apart, the action to run.
+func proposalRow(accountID, section string, p insights.Proposal, createdBy *string) db.Suggestion {
+	row := db.Suggestion{ID: uuid.NewString(), AccountID: accountID, Section: section, Status: "sugerida",
+		Title: p.Title, Body: p.Body, Evidence: p.Evidence, CreatedBy: createdBy}
+	if p.Explain != nil {
+		row.Explain, _ = json.Marshal(p.Explain)
+	}
+	if p.Action != nil {
+		row.Action, _ = json.Marshal(p.Action)
+	}
+	return row
 }

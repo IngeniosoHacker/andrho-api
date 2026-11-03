@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/IngeniosoHacker/andrho-api/internal/db"
@@ -97,16 +96,18 @@ func (h *Handler) storeProposals(ctx context.Context, accountID, section string,
 		if exists {
 			continue
 		}
-		if limit >= 0 && used >= limit {
+		// Turning on an ERP app is setup AndRho does for the owner, not
+		// advice: it never counts against (nor waits for) the plan's quota.
+		setup := p.Action != nil && p.Action.Type == "erp_install"
+		if !setup && limit >= 0 && used >= limit {
 			return created, true, nil
 		}
-		if _, err := db.CreateSuggestion(ctx, h.Accounts, db.Suggestion{
-			ID: uuid.NewString(), AccountID: accountID, Section: section, Status: "sugerida",
-			Title: p.Title, Body: p.Body, Report: p.Evidence,
-		}); err != nil {
+		if _, err := db.CreateSuggestion(ctx, h.Accounts, proposalRow(accountID, section, p, nil)); err != nil {
 			return created, false, err
 		}
-		used++
+		if !setup {
+			used++
+		}
 		created++
 	}
 	return created, false, nil

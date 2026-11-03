@@ -147,6 +147,8 @@ func New(h *handlers.Handler) *gin.Engine {
 	creatorsGroup.Use(requireAuth, h.RequireStaff("creator"))
 	{
 		creatorsGroup.GET("/tasks", h.CreatorTasks)
+		creatorsGroup.GET("/skills", h.CreatorSkills)
+		creatorsGroup.PUT("/skills", h.SetCreatorSkills)
 		creatorsGroup.PATCH("/tasks/:id", h.UpdateCreatorTask)
 		creatorsGroup.GET("/tasks/:id/logo", h.CreatorTaskLogo)
 	}

@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http"
 	"sort"
 	"strings"
@@ -67,7 +68,9 @@ func (h *Handler) erp(c *gin.Context, fn func(ctx context.Context, cl *odoo.Clie
 			respondError(c, http.StatusBadGateway, "tu ERP rechazó el acceso de AndRho; vuelve a conectarlo")
 			return
 		}
-		respondError(c, http.StatusBadGateway, "no pudimos leer tu ERP: "+err.Error())
+		// The owner can't act on an Odoo traceback: log it, say it plainly.
+		log.Printf("erp: %s %s: %v", claims.AccountID, c.FullPath(), err)
+		respondError(c, http.StatusBadGateway, "no pudimos leer tu ERP en este momento; AndRho lo reintenta solo")
 		return
 	}
 	c.JSON(http.StatusOK, out)
@@ -225,7 +228,11 @@ func paidOrders(ctx context.Context, cl *odoo.Client, domain []any, limit int) [
 // and since when they haven't come back.
 func (h *Handler) ERPCustomers(c *gin.Context) {
 	h.erp(c, func(ctx context.Context, cl *odoo.Client) (any, error) {
-		orders := paidOrders(ctx, cl, nil, 5000)
+		orders, sources := salesOrders(ctx, cl, 5000)
+		if len(sources) == 0 {
+			return row{"summary": row{"customers": 0, "orders": 0, "revenue": 0}, "customers": []row{},
+				"missing": row{"module": "point_of_sale", "label": "Ventas"}}, nil
+		}
 		type agg struct {
 			name        string
 			total       float64
@@ -253,14 +260,22 @@ func (h *Handler) ERPCustomers(c *gin.Context) {
 				a.last = d
 			}
 		}
-		var partners []row
-		if err := cl.SearchRead(ctx, "res.partner", []any{[]any{"customer_rank", ">", 0}},
-			[]string{"name", "email", "phone", "create_date"}, "name", 2000, &partners); err != nil {
-			return nil, err
+		// Contact details of those buyers (customer_rank only exists with
+		// Invoicing, so filter by name instead).
+		names := make([]string, 0, len(by))
+		for n := range by {
+			names = append(names, n)
 		}
 		contact := map[string]row{}
-		for _, p := range partners {
-			contact[odoo.Str(p["name"])] = p
+		if len(names) > 0 {
+			var partners []row
+			if err := cl.SearchRead(ctx, "res.partner", []any{[]any{"name", "in", names}},
+				[]string{"name", "email", "phone"}, "name", 5000, &partners); err != nil {
+				return nil, err
+			}
+			for _, p := range partners {
+				contact[odoo.Str(p["name"])] = p
+			}
 		}
 		list := []row{}
 		now := time.Now()
@@ -280,8 +295,27 @@ func (h *Handler) ERPCustomers(c *gin.Context) {
 		for _, o := range orders {
 			revenue += odoo.Num(o["amount_total"])
 		}
-		return row{"summary": row{"customers": len(list), "orders": len(orders), "revenue": revenue}, "customers": list}, nil
+		return row{"summary": row{"customers": len(list), "orders": len(orders), "revenue": revenue}, "customers": list, "sources": sources}, nil
 	})
+}
+
+// salesOrders reads confirmed sales from whichever sales apps the ERP has
+// (point of sale and/or sales orders), as one list, and which ones it read.
+func salesOrders(ctx context.Context, cl *odoo.Client, limit int) ([]row, []string) {
+	var all []row
+	sources := []string{}
+	if cl.HasModel(ctx, "pos.order") {
+		sources = append(sources, "pos")
+		all = append(all, paidOrders(ctx, cl, nil, limit)...)
+	}
+	if cl.HasModel(ctx, "sale.order") {
+		sources = append(sources, "ventas")
+		var so []row
+		_ = cl.SearchRead(ctx, "sale.order", []any{[]any{"state", "in", []string{"sale", "done"}}},
+			[]string{"name", "date_order", "amount_total", "partner_id"}, "date_order desc", limit, &so)
+		all = append(all, so...)
+	}
+	return all, sources
 }
 
 // ERPLeads handles GET /erp/leads: people who left their details and
@@ -304,16 +338,30 @@ func (h *Handler) ERPLeads(c *gin.Context) {
 			}
 			return row{"source": "crm", "leads": out}, nil
 		}
+		// Without the CRM: contacts who never bought. customer_rank (the
+		// fast way) only exists with Invoicing; otherwise compare against
+		// the buyers in the sales apps the ERP has.
+		domain := []any{[]any{"is_company", "=", false}, []any{"user_ids", "=", false}, []any{"type", "=", "contact"}}
+		if cl.HasField(ctx, "res.partner", "customer_rank") {
+			domain = append(domain, []any{"customer_rank", "=", 0})
+		}
 		var partners []row
-		if err := cl.SearchRead(ctx, "res.partner", []any{[]any{"customer_rank", "=", 0}, []any{"is_company", "=", false}, []any{"user_ids", "=", false}},
-			[]string{"name", "email", "phone", "create_date"}, "create_date desc", 500, &partners); err != nil {
+		if err := cl.SearchRead(ctx, "res.partner", domain, []string{"name", "email", "phone", "create_date"}, "create_date desc", 500, &partners); err != nil {
 			return nil, err
+		}
+		buyers := map[string]bool{}
+		orders, _ := salesOrders(ctx, cl, 5000)
+		for _, o := range orders {
+			buyers[odoo.M2O(o["partner_id"])] = true
 		}
 		out := []row{}
 		for _, p := range partners {
+			if buyers[odoo.Str(p["name"])] {
+				continue
+			}
 			out = append(out, row{"name": p["name"], "contact": p["name"], "email": odoo.Str(p["email"]), "phone": odoo.Str(p["phone"]), "created": p["create_date"]})
 		}
-		return row{"source": "contactos", "leads": out}, nil
+		return row{"source": "contactos", "leads": out, "missing": row{"module": "crm", "label": "CRM"}}, nil
 	})
 }
 

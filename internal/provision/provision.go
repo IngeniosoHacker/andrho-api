@@ -32,6 +32,7 @@ import (
 
 	"github.com/IngeniosoHacker/andrho-api/internal/analyzer"
 	"github.com/IngeniosoHacker/andrho-api/internal/db"
+	"github.com/IngeniosoHacker/andrho-api/internal/matching"
 	"github.com/IngeniosoHacker/andrho-api/internal/secret"
 	"github.com/IngeniosoHacker/andrho-api/internal/vps"
 )
@@ -287,7 +288,8 @@ func (p *Provisioner) Run(ctx context.Context, acc Account, j db.ProvisioningJob
 		set(StatusWaitingMeta, "Tu número quedó registrado. La conexión se activa cuando Meta apruebe a AndRho como Tech Provider.", res, true)
 
 	case "website":
-		creator, err := db.FirstStaffUser(ctx, p.DB, "creator")
+		// The Creator best suited right now (internal/matching), not just the first one.
+		res, found, err := matching.Assign(ctx, p.DB, acc.ID, "web")
 		if err != nil {
 			set(StatusError, "No pudimos asignar tu sitio a un Creator.", map[string]string{"error": err.Error()}, true)
 			return
@@ -296,8 +298,9 @@ func (p *Provisioner) Run(ctx context.Context, acc Account, j db.ProvisioningJob
 		task := db.CreatorTask{ID: uuid.NewString(), AccountID: acc.ID, Kind: "website", Title: "Sitio web de " + acc.Company,
 			Brief: j.Input, Status: "abierta", DueAt: &due}
 		detail := "Tu sitio está en la lista de los Creators."
-		if creator != "" {
-			task.CreatorID, task.Status = &creator, "aceptada"
+		if found {
+			task.CreatorID, task.Status = &res.UserID, "aceptada"
+			task.Match, _ = json.Marshal(res)
 			detail = "Un Creator ya está trabajando en tu sitio."
 		}
 		if _, err := db.CreateCreatorTask(ctx, p.DB, task); err != nil {

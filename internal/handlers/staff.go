@@ -201,6 +201,14 @@ func (h *Handler) UpdateCreatorTask(c *gin.Context) {
 		return
 	}
 	_ = db.LogEvent(ctx, h.Accounts, uuid.NewString(), t.AccountID, nil, "creator_task_"+status, event)
+	// The suggestion this task came from is done when the work is delivered.
+	if status == "entregada" && t.SuggestionID != nil {
+		report := "Listo: un Creator de AndRho lo hizo. Puedes verlo aquí: " + delivery
+		if notes != "" && notes != t.Notes {
+			report += " — " + notes
+		}
+		_ = db.FinishSuggestion(ctx, h.Accounts, *t.SuggestionID, report)
+	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "status": status})
 }
 
@@ -213,4 +221,47 @@ func (h *Handler) CreatorTaskLogo(c *gin.Context) {
 		return
 	}
 	h.serveLogo(c, t.AccountID)
+}
+
+// Skills a Creator can declare for internal/matching.
+var creatorSkills = map[string]bool{"web": true, "social": true, "erp": true, "contenido": true, "diseno": true}
+
+type creatorSkillsRequest struct {
+	Skills []string `json:"skills"`
+}
+
+// CreatorSkills handles GET /creators/skills: the signed-in Creator's skills.
+func (h *Handler) CreatorSkills(c *gin.Context) {
+	claims, _ := currentClaims(c)
+	var skills []string
+	err := h.Accounts.QueryRow(c.Request.Context(), `SELECT skills FROM staff WHERE user_id = $1`, claims.Sub).Scan(&skills)
+	if err != nil {
+		skills = []string{}
+	}
+	c.JSON(http.StatusOK, gin.H{"skills": skills, "options": []string{"web", "social", "erp", "contenido", "diseno"}})
+}
+
+// SetCreatorSkills handles PUT /creators/skills {skills}: what the matching
+// assigns them. Empty = generalist.
+func (h *Handler) SetCreatorSkills(c *gin.Context) {
+	claims, _ := currentClaims(c)
+	var req creatorSkillsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	out := []string{}
+	seen := map[string]bool{}
+	for _, s := range req.Skills {
+		s = strings.TrimSpace(strings.ToLower(s))
+		if creatorSkills[s] && !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	if _, err := h.Accounts.Exec(c.Request.Context(), `UPDATE staff SET skills = $2 WHERE user_id = $1`, claims.Sub, out); err != nil {
+		respondError(c, http.StatusInternalServerError, "internal error")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"skills": out})
 }

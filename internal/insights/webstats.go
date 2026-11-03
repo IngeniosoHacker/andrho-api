@@ -197,6 +197,76 @@ func runAnova(ctx context.Context, src Sources, analysis string, organicOnly boo
 	return &out, nil
 }
 
+var outcomeUnit = map[string]string{"duration_s": "segundos en tu sitio", "pages": "páginas por visita", "scroll": "% de la página que ven"}
+
+var outcomeVerb = map[string]string{"duration_s": "se queda", "pages": "ve", "scroll": "baja"}
+
+// anovaExplain is the owner's view of an ANOVA effect: the typical value of
+// every level of the factor, the weak one highlighted.
+func anovaExplain(m anovaModel, factor, best, worst string, organic bool) *Explain {
+	bars := []ExplainBar{}
+	var bv, wv float64
+	for _, l := range m.Levels[factor] {
+		if l.Level == "otras" || l.Level == "desconocido" {
+			continue
+		}
+		v := math.Round(l.Mean*10) / 10
+		bars = append(bars, ExplainBar{Label: strings.TrimPrefix(lvl(l.Level), "quienes "), Value: v, Highlight: l.Level == worst})
+		if l.Level == best {
+			bv = v
+		}
+		if l.Level == worst {
+			wv = v
+		}
+	}
+	sort.Slice(bars, func(i, j int) bool { return bars[i].Value > bars[j].Value })
+	if len(bars) > 6 {
+		bars = bars[:6]
+	}
+	who := "visitas"
+	if organic {
+		who = "visitas que llegan desde Google"
+	}
+	unit := outcomeUnit[m.Outcome]
+	// "se queda 41 segundos" / "ve 2.3 páginas" / "ve el 60% de la página"
+	// Traffic sources read as plural ("quienes llegan desde Google").
+	plural := factor == "source"
+	amount := func(v float64) string {
+		n := map[bool]string{true: "n", false: ""}[plural]
+		switch m.Outcome {
+		case "duration_s":
+			return fmt.Sprintf("se queda%s %.0f segundos", n, v)
+		case "pages":
+			return fmt.Sprintf("ve%s %.1f páginas", n, v)
+		}
+		return fmt.Sprintf("ve%s el %.0f%% de cada página", n, v)
+	}
+	subject := func(level string) string {
+		switch factor {
+		case "landing":
+			return "Quien entra por " + level
+		case "device":
+			return "Quien te visita en " + lvl(level)
+		}
+		l := lvl(level)
+		return strings.ToUpper(l[:1]) + l[1:]
+	}
+	head := fmt.Sprintf("%s %s en promedio; %s, %s.", subject(worst), amount(wv), strings.ToLower(subject(best)[:1])+subject(best)[1:], amount(bv))
+	take := "Lo que funciona en el grupo de arriba se puede copiar en el de abajo: ahí está la mejora más rápida."
+	switch {
+	case factor == "device" && worst == "mobile":
+		take = "La mayoría te visita desde el celular. Si ahí se van antes, pierdes a la mayor parte de tus posibles clientes."
+	case factor == "source" && worst == "organic_search":
+		take = "Google te manda gente, pero no encuentra lo que buscaba y se va antes que el resto. Si tus páginas responden justo esa búsqueda, esas visitas se convierten en clientes."
+	case factor == "landing" && organic:
+		take = "Google ya te manda gente a esa página; si no encuentran lo que buscaban, se van con otro."
+	case factor == "landing":
+		take = fmt.Sprintf("Las dos páginas reciben visitas, pero %s retiene mucho más. Lo que hace bien se puede copiar en %s.", best, worst)
+	}
+	l, t := proven(m.N, who)
+	return withConfidence(&Explain{Kind: "comparacion", Unit: unit, Headline: head, Bars: bars, Takeaway: take}, l, t)
+}
+
 // strongest returns the significant Tukey pair with the biggest gap between
 // the best and worst level of a factor (ratio on the outcome's own scale).
 func strongest(m anovaModel, factor string) (best, worst string, ratio float64, p float64, ok bool) {
@@ -234,9 +304,8 @@ func levelN(m anovaModel, factor, level string) int {
 }
 
 // anovaFindings turns one analysis into findings and at most `maxProps` proposals.
-func anovaFindings(res *anovaResult, organic bool, a *analysis, maxProps int) {
+func anovaFindings(res *anovaResult, organic bool, a *analysis, maxProps int, seen map[string]bool) {
 	props := 0
-	seen := map[string]bool{}
 	for _, m := range res.Models {
 		if m.Skipped != "" {
 			continue
@@ -254,6 +323,8 @@ func anovaFindings(res *anovaResult, organic bool, a *analysis, maxProps int) {
 			if !ok {
 				continue
 			}
+			// Same factor and same weak level = same advice, whichever
+			// analysis (all visits or Google only) found it first.
 			key := e.Term + "|" + worst
 			gap := fmt.Sprintf("%.1f veces", ratio)
 			if m.Transform == "none" {
@@ -270,32 +341,33 @@ func anovaFindings(res *anovaResult, organic bool, a *analysis, maxProps int) {
 			if e.PartialEta2 >= 0.04 {
 				sev = "alerta"
 			}
-			a.add("comentario", sev, "Comprobado con estadística en %s: %s cambia %s (%s menos para %s que para %s).",
+			a.add("comentario", sev, "En %s, %s cambia %s: %s menos para %s que para %s.",
 				scope, factorLabel[e.Term], outcomeLabel[m.Outcome], gap, lvl(worst), lvl(best))
 			if props >= maxProps || seen[key] {
 				continue
 			}
 			seen[key] = true
+			ex := anovaExplain(m, e.Term, best, worst, organic)
 			switch {
 			case e.Term == "landing" && organic:
-				a.propose("Arregla "+worst+" para quien llega de Google",
+				a.proposeX("Arregla "+worst+" para quien llega de Google",
 					fmt.Sprintf("Google manda gente a %s pero se va antes que en %s. Revisa que el título y el primer párrafo respondan exactamente lo que buscaron (mira sus keywords en Web > Keywords) y pon el siguiente paso a la vista.", worst, best),
-					evidence)
+					evidence, ex, creatorAction("web"))
 				props++
 			case e.Term == "landing":
-				a.propose("Mejora la página "+worst,
+				a.proposeX("Mejora la página "+worst,
 					fmt.Sprintf("Quien entra por %s se queda %s menos que quien entra por %s. Copia lo que funciona de %s: lo que muestra arriba, sus enlaces y su llamada a la acción.", worst, gap, best, best),
-					evidence)
+					evidence, ex, creatorAction("web"))
 				props++
 			case e.Term == "device" && worst == "mobile":
-				a.propose("Arregla tu sitio en celular",
+				a.proposeX("Arregla tu sitio en celular",
 					"En celular la gente se va mucho antes que en computadora. Revisa que cargue rápido, que el texto se lea sin hacer zoom y que el botón de contacto se vea sin bajar.",
-					evidence)
+					evidence, ex, creatorAction("web"))
 				props++
 			case e.Term == "source" && worst == "organic_search":
-				a.propose("Lo que buscan en Google no es lo que encuentran",
+				a.proposeX("Lo que buscan en Google no es lo que encuentran",
 					"Quien llega desde Google se va antes que el resto: tus páginas aparecen para búsquedas que no responden. Ajusta títulos y contenido a las keywords sugeridas en Web > Keywords.",
-					evidence)
+					evidence, ex, creatorAction("web"))
 				props++
 			}
 		}
@@ -462,19 +534,35 @@ func seoRanks(ctx context.Context, src Sources, a *analysis) {
 		if i == 3 {
 			break
 		}
-		a.add("notificacion", "alerta", "\"%s\" viene cayendo en Google: %.1f posiciones por semana (de #%.0f a #%.0f, tendencia con %s).", t.Keyword, t.SlopePerWeek, t.First, t.Last, fmtP(t.P))
+		a.add("notificacion", "alerta", "\"%s\" viene cayendo en Google semana a semana: pasó del lugar %.0f al %.0f.", t.Keyword, t.First, t.Last)
 	}
 	if len(down) > 0 {
 		t := down[0]
-		a.propose("Recupera \""+t.Keyword+"\" en Google",
+		series := []ExplainPoint{}
+		for _, k := range all {
+			if k.Keyword != t.Keyword {
+				continue
+			}
+			start := time.Now().AddDate(0, 0, -int(k.Days[len(k.Days)-1]))
+			for i, d := range k.Days {
+				series = append(series, ExplainPoint{Label: start.AddDate(0, 0, int(d)).Format("02/01"), Value: k.Positions[i]})
+			}
+		}
+		lvl, txt := proven(t.N, "revisiones diarias de Google")
+		a.proposeX("Recupera \""+t.Keyword+"\" en Google",
 			"Esta búsqueda baja semana a semana, no es un mal día. Actualiza la página que aparece (fecha, datos, una sección nueva) y revisa en Web > Competencia quién te está pasando.",
-			fmt.Sprintf("Regresión de posición en %d revisiones: %+.1f posiciones/semana, %s.", t.N, t.SlopePerWeek, fmtP(t.P)))
+			fmt.Sprintf("Regresión de posición en %d revisiones: %+.1f posiciones/semana, %s.", t.N, t.SlopePerWeek, fmtP(t.P)),
+			withConfidence(&Explain{Kind: "tendencia", LowerIsBetter: true, Unit: "lugar en Google",
+				Headline: fmt.Sprintf("Cuando alguien busca \"%s\", tu sitio aparece cada vez más abajo: del lugar %.0f al %.0f.", t.Keyword, t.First, t.Last),
+				Series:   series,
+				Takeaway: "Casi nadie pasa de la primera página de Google. Si sigues bajando a este ritmo, esta búsqueda dejará de traerte clientes."}, lvl, txt),
+			creatorAction("web"))
 	}
 	for i, t := range up {
 		if i == 2 {
 			break
 		}
-		a.add("notificacion", "buena", "\"%s\" sube en Google: %.1f posiciones por semana (ahora #%.0f).", t.Keyword, -t.SlopePerWeek, t.Last)
+		a.add("notificacion", "buena", "\"%s\" sube en Google semana a semana: ya estás en el lugar %.0f.", t.Keyword, t.Last)
 	}
 
 	if out.Factors == nil {
@@ -506,10 +594,16 @@ func seoRanks(ctx context.Context, src Sources, a *analysis) {
 			if len(missing) > 4 {
 				missing = append(missing[:4], "…")
 			}
-			a.propose("Pon cada keyword en el título de su página",
+			lvl, txt := proven(out.Factors.N, "búsquedas de tu propio sitio")
+			a.proposeX("Pon cada keyword en el título de su página",
 				"En tu propio sitio, las páginas que llevan la búsqueda en el título están mucho más arriba en Google. Faltan: "+strings.Join(missing, ", ")+".",
 				fmt.Sprintf("ANOVA factorial de la posición sobre %d keywords: título con keyword ~#%.0f vs sin ella ~#%.0f (F=%.1f, %s, η² parcial %.0f%%).",
-					out.Factors.N, yes, no, e.F, fmtP(e.P), e.PartialEta2*100))
+					out.Factors.N, yes, no, e.F, fmtP(e.P), e.PartialEta2*100),
+				withConfidence(&Explain{Kind: "comparacion", LowerIsBetter: true, Unit: "lugar promedio en Google",
+					Headline: fmt.Sprintf("En tu sitio, las páginas que dicen la búsqueda en su título aparecen en el lugar %.0f; las que no, en el %.0f.", yes, no),
+					Bars:     []ExplainBar{{Label: "Con la búsqueda en el título", Value: math.Round(yes)}, {Label: "Sin ella", Value: math.Round(no), Highlight: true}},
+					Takeaway: "El título es lo primero que Google lee. Decir en él exactamente lo que la gente busca es el cambio más barato para subir."}, lvl, txt),
+				creatorAction("web"))
 		}
 	}
 }
@@ -548,11 +642,15 @@ func webDeep(ctx context.Context, src Sources, a *analysis) {
 	if !src.Stats.Available() {
 		return
 	}
+	seen := map[string]bool{}
+	// Google visits first: "Google sends people to X and they leave" is the
+	// more specific advice for the same weak page.
+	if res, err := runAnova(ctx, src, "organico", true); err == nil && res != nil {
+		a.hasData = true
+		anovaFindings(res, true, a, 1, seen)
+	}
 	if res, err := runAnova(ctx, src, "todas", false); err == nil && res != nil {
 		a.hasData = true
-		anovaFindings(res, false, a, 2)
-	}
-	if res, err := runAnova(ctx, src, "organico", true); err == nil && res != nil {
-		anovaFindings(res, true, a, 1)
+		anovaFindings(res, false, a, 2, seen)
 	}
 }

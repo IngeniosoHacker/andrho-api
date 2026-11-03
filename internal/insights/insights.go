@@ -32,10 +32,15 @@ type Finding struct {
 }
 
 // Proposal is a suggestion before it's stored: what to do and why.
+// Evidence is the technical backing (for AndRho's team and Creators);
+// Explain is the same for the business owner (the "¿Por qué?" view);
+// Action is what accepting it does (explain.go).
 type Proposal struct {
-	Title    string `json:"title"`
-	Body     string `json:"body"`
-	Evidence string `json:"evidence"`
+	Title    string   `json:"title"`
+	Body     string   `json:"body"`
+	Evidence string   `json:"evidence"`
+	Explain  *Explain `json:"explain,omitempty"`
+	Action   *Action  `json:"action,omitempty"`
 }
 
 // Result is what the panel shows.
@@ -69,7 +74,7 @@ func (a *analysis) add(kind, sev, format string, args ...any) {
 }
 
 func (a *analysis) propose(title, body, evidence string) {
-	a.proposals = append(a.proposals, Proposal{title, body, evidence})
+	a.proposals = append(a.proposals, Proposal{Title: title, Body: body, Evidence: evidence})
 }
 
 func pct(x float64) string { return fmt.Sprintf("%+.0f%%", x*100) }
@@ -120,6 +125,12 @@ func Run(ctx context.Context, src Sources, client *ai.Client, accountID, section
 	}
 	if !a.hasData {
 		res.Summary = noDataSummary(section)
+		// Connected, but missing the app this section reads: say that.
+		for _, p := range a.proposals {
+			if p.Action != nil && p.Action.Type == "erp_install" {
+				res.Summary = p.Body
+			}
+		}
 		return res
 	}
 	res.Summary = ruleSummary(a.findings)
@@ -217,9 +228,15 @@ func web(ctx context.Context, src Sources, a *analysis) {
 		}
 		a.add("resumen", sev, "Tu sitio tuvo %.0f visitas esta semana (%s que la anterior).", week, pct(c))
 		if c <= -0.2 {
-			a.propose("Averigua por qué bajaron tus visitas",
+			lvl, txt := reading("en las dos últimas semanas")
+			a.proposeX("Averigua por qué bajaron tus visitas",
 				"Tus visitas cayeron "+pct(c)+" esta semana. Revisa si dejaste de publicar, si cambió una campaña o si una página dejó de aparecer en Google.",
-				fmt.Sprintf("%.0f visitas esta semana contra %.0f la anterior.", week, prev))
+				fmt.Sprintf("%.0f visitas esta semana contra %.0f la anterior.", week, prev),
+				withConfidence(&Explain{Kind: "cambio", Unit: "visitas",
+					Headline: fmt.Sprintf("Esta semana te visitaron %.0f personas; la semana pasada, %.0f.", week, prev),
+					Bars:     []ExplainBar{{Label: "Semana pasada", Value: prev}, {Label: "Esta semana", Value: week, Highlight: true}},
+					Takeaway: "Cuando las visitas caen de golpe casi siempre hay una causa concreta: una campaña que terminó, una publicación que no salió o una página que Google dejó de mostrar."},
+					lvl, txt), nil)
 		}
 	} else {
 		a.add("resumen", "info", "Tu sitio tuvo %.0f visitas esta semana.", week)
@@ -256,9 +273,15 @@ func web(ctx context.Context, src Sources, a *analysis) {
 		share := organic / total
 		a.add("comentario", "info", "%.0f%% de tus visitas del mes llegan desde buscadores.", share*100)
 		if share < 0.2 {
-			a.propose("Escribe para lo que tus clientes buscan",
+			lvl, txt := pattern("tus visitas del último mes")
+			a.proposeX("Escribe para lo que tus clientes buscan",
 				"Pocas visitas llegan desde Google. Un artículo por cada pregunta frecuente de tus clientes te pone en esas búsquedas; súbelo en Web > Artículos.",
-				fmt.Sprintf("Buscadores: %.0f de %.0f visitas (%.0f%%).", organic, total, share*100))
+				fmt.Sprintf("Buscadores: %.0f de %.0f visitas (%.0f%%).", organic, total, share*100),
+				withConfidence(&Explain{Kind: "proporcion", Unit: "visitas",
+					Headline: fmt.Sprintf("Solo %.0f de cada 100 visitas te encuentran buscando en Google.", share*100),
+					Bars:     []ExplainBar{{Label: "Desde Google", Value: organic, Highlight: true}, {Label: "Por otros caminos", Value: total - organic}},
+					Takeaway: "Google es la fuente de clientes que no cuesta por clic. Si respondes en tu sitio lo que tus clientes preguntan, apareces cuando lo buscan."},
+					lvl, txt), creatorAction("contenido"))
 		}
 	}
 	if topPage != "" {
@@ -266,17 +289,29 @@ func web(ctx context.Context, src Sources, a *analysis) {
 	}
 	if avgScroll > 0 && avgScroll < 50 {
 		a.add("comentario", "alerta", "En promedio la gente solo ve el %.0f%% de cada página.", avgScroll)
-		a.propose("Pon lo importante arriba",
+		lvl, txt := pattern("las páginas vistas este mes")
+		a.proposeX("Pon lo importante arriba",
 			"La mayoría no llega a la mitad de tus páginas. Mueve el precio, el botón de contacto y lo que te diferencia a la parte de arriba.",
-			fmt.Sprintf("Scroll promedio: %.0f%%.", avgScroll))
+			fmt.Sprintf("Scroll promedio: %.0f%%.", avgScroll),
+			withConfidence(&Explain{Kind: "proporcion", Unit: "% de la página",
+				Headline: fmt.Sprintf("En promedio, la gente solo ve el %.0f%% de cada página.", avgScroll),
+				Bars:     []ExplainBar{{Label: "Lo que ven", Value: math.Round(avgScroll), Highlight: true}, {Label: "Lo que no llegan a ver", Value: 100 - math.Round(avgScroll)}},
+				Takeaway: "Todo lo que está más abajo de ese punto casi nadie lo lee. Si tu precio o tu botón de contacto están ahí, la mayoría se va sin verlos."},
+				lvl, txt), creatorAction("web"))
 	}
 	if c, ok := Change(crawls, crawlsPrev); ok {
 		a.add("comentario", map[bool]string{true: "buena", false: "info"}[c > 0], "Los rastreadores de IA leyeron tu sitio %.0f veces esta semana (%s).", crawls, pct(c))
 	}
 	if crawls > 0 && aiRef == 0 {
-		a.propose("Haz que los asistentes de IA te recomienden",
+		lvl, txt := pattern("el último mes")
+		a.proposeX("Haz que los asistentes de IA te recomienden",
 			"ChatGPT y otros ya leen tu sitio pero todavía no te mandan clientes. Agrega preguntas frecuentes con respuestas directas y datos concretos (precios, zonas, horarios).",
-			fmt.Sprintf("%.0f lecturas de IA esta semana, 0 visitas desde asistentes en 30 días.", crawls))
+			fmt.Sprintf("%.0f lecturas de IA esta semana, 0 visitas desde asistentes en 30 días.", crawls),
+			withConfidence(&Explain{Kind: "comparacion", Unit: "veces",
+				Headline: "ChatGPT y otros asistentes ya leen tu sitio, pero todavía no le recomiendan tu negocio a nadie.",
+				Bars:     []ExplainBar{{Label: "Veces que la IA leyó tu sitio (semana)", Value: crawls}, {Label: "Clientes que la IA te mandó (mes)", Value: 0, Highlight: true}},
+				Takeaway: "Los asistentes recomiendan negocios cuando encuentran respuestas claras: precios, zonas, horarios y preguntas frecuentes escritas tal cual."},
+				lvl, txt), creatorAction("contenido"))
 	}
 }
 
@@ -349,15 +384,39 @@ func inventory(ctx context.Context, src Sources, a *analysis) {
 	}
 	if len(out) > 0 {
 		a.add("notificacion", "alerta", "Se agotó lo que sí se vende: %s.", names(out, 3))
-		a.propose("Reabastece lo agotado", "Estos productos se venden y ya no hay: "+names(out, 5)+". Cada día sin ellos es venta perdida.",
-			count(len(out), "producto", "productos")+" con ventas en 30 días y existencia 0.")
+		bars := []ExplainBar{}
+		for i, it := range out {
+			if i == 5 {
+				break
+			}
+			bars = append(bars, ExplainBar{Label: it.name, Value: sold[it.name], Highlight: true})
+		}
+		lvl, txt := pattern("tus ventas de los últimos 30 días")
+		a.proposeX("Reabastece lo agotado", "Estos productos se venden y ya no hay: "+names(out, 5)+". Cada día sin ellos es venta perdida.",
+			count(len(out), "producto", "productos")+" con ventas en 30 días y existencia 0.",
+			withConfidence(&Explain{Kind: "comparacion", Unit: "unidades vendidas en 30 días",
+				Headline: "Estos productos se vendieron este mes y hoy no te queda ninguno.",
+				Bars:     bars,
+				Takeaway: "Cada cliente que los pide y no los encuentra es una venta que se va con la competencia."}, lvl, txt), nil)
 	}
 	if len(short) > 0 {
 		sort.Slice(short, func(i, j int) bool { return short[i].cover < short[j].cover })
 		a.add("notificacion", "alerta", "%s se acaba en %.0f días al ritmo de venta actual.", short[0].name, math.Max(1, short[0].cover))
-		a.propose("Pide antes de quedarte sin producto",
+		bars := []ExplainBar{}
+		for i, it := range short {
+			if i == 5 {
+				break
+			}
+			bars = append(bars, ExplainBar{Label: it.name, Value: math.Round(math.Max(0, it.cover)*10) / 10, Highlight: true})
+		}
+		lvl, txt := pattern("tus ventas de los últimos 30 días")
+		a.proposeX("Pide antes de quedarte sin producto",
 			"Al ritmo de venta del último mes, "+names(short, 4)+" no llegan a una semana. Haz el pedido a tus proveedores esta semana.",
-			count(len(short), "producto", "productos")+" con menos de 7 días de existencia.")
+			count(len(short), "producto", "productos")+" con menos de 7 días de existencia.",
+			withConfidence(&Explain{Kind: "comparacion", Unit: "días que te alcanza",
+				Headline: "Al ritmo en que se venden, estos productos se acaban en menos de una semana.",
+				Bars:     bars,
+				Takeaway: "Si el proveedor tarda unos días en entregar, el pedido tiene que salir ya para no quedarte sin nada."}, lvl, txt), nil)
 	}
 	if len(dead) > 0 {
 		sort.Slice(dead, func(i, j int) bool { return dead[i].value > dead[j].value })
@@ -366,8 +425,13 @@ func inventory(ctx context.Context, src Sources, a *analysis) {
 			tied += d.value
 		}
 		a.add("comentario", "alerta", "Tienes Q%.0f en productos que no se vendieron en 30 días.", tied)
-		a.propose("Mueve lo que no se vende", "Haz una promoción o un combo con "+names(dead, 3)+": es dinero dormido en tu bodega.",
-			fmt.Sprintf("Q%.0f sin rotación en 30 días.", tied))
+		lvl, txt := pattern("tus ventas de los últimos 30 días")
+		a.proposeX("Mueve lo que no se vende", "Haz una promoción o un combo con "+names(dead, 3)+": es dinero dormido en tu bodega.",
+			fmt.Sprintf("Q%.0f sin rotación en 30 días.", tied),
+			withConfidence(&Explain{Kind: "proporcion", Unit: "quetzales en bodega",
+				Headline: fmt.Sprintf("Tienes Q%.0f en productos que nadie compró en un mes.", tied),
+				Bars:     []ExplainBar{{Label: "Sin venderse", Value: math.Round(tied), Highlight: true}, {Label: "El resto de tu inventario", Value: math.Round(math.Max(0, value-tied))}},
+				Takeaway: "Ese dinero está quieto. Una promoción o un combo lo convierte en efectivo para comprar lo que sí se vende."}, lvl, txt), nil)
 	}
 }
 
@@ -381,6 +445,12 @@ func paidOrders(ctx context.Context, cl *odoo.Client, since time.Time) []map[str
 
 func customers(ctx context.Context, src Sources, a *analysis) {
 	if src.Odoo == nil {
+		return
+	}
+	if !src.Odoo.HasModel(ctx, "pos.order") && !src.Odoo.HasModel(ctx, "sale.order") {
+		missingModule(a, "Activa el registro de ventas en tu ERP", "point_of_sale", "Ventas",
+			"Tu ERP todavía no registra ventas, así que AndRho no puede saber quién te compra, cada cuánto ni quién dejó de venir. Al aceptar, AndRho activa el punto de venta en tu ERP por ti.",
+			"Con cada venta registrada, AndRho te avisa qué clientes dejaron de venir, quiénes compran más y cuándo escribirles.")
 		return
 	}
 	orders := paidOrders(ctx, src.Odoo, time.Now().AddDate(0, 0, -120))
@@ -444,14 +514,29 @@ func customers(ctx context.Context, src Sources, a *analysis) {
 		if len(list) > 4 {
 			list = list[:4]
 		}
-		a.propose("Escríbele a quien dejó de venir", "Mándales un mensaje o una promoción a "+strings.Join(list, ", ")+". Recuperar un cliente cuesta menos que conseguir uno nuevo.",
-			fmt.Sprintf("%d clientes con 3 o más compras y más de 30 días sin volver.", len(lost)))
+		bars := []ExplainBar{}
+		for _, name := range list {
+			bars = append(bars, ExplainBar{Label: name, Value: math.Round(now.Sub(by[name].last).Hours() / 24), Highlight: true})
+		}
+		lvl, txt := pattern("tus ventas de los últimos 4 meses")
+		a.proposeX("Escríbele a quien dejó de venir", "Mándales un mensaje o una promoción a "+strings.Join(list, ", ")+". Recuperar un cliente cuesta menos que conseguir uno nuevo.",
+			fmt.Sprintf("%d clientes con 3 o más compras y más de 30 días sin volver.", len(lost)),
+			withConfidence(&Explain{Kind: "comparacion", Unit: "días sin comprar",
+				Headline: count(len(lost), "cliente que compraba seguido ya no ha vuelto", "clientes que compraban seguido ya no han vuelto") + " en más de un mes.",
+				Bars:     bars,
+				Takeaway: "Un mensaje a tiempo recupera a muchos de ellos, y recuperar un cliente cuesta mucho menos que conseguir uno nuevo."}, lvl, txt), nil)
 	}
 	a.add("comentario", "info", "%d clientes identificados compraron en los últimos 4 meses.", len(by))
 }
 
 func leads(ctx context.Context, src Sources, a *analysis) {
-	if src.Odoo == nil || !src.Odoo.HasModel(ctx, "crm.lead") {
+	if src.Odoo == nil {
+		return
+	}
+	if !src.Odoo.HasModel(ctx, "crm.lead") {
+		missingModule(a, "Activa el seguimiento de prospectos", "crm", "CRM",
+			"Tu ERP todavía no guarda a las personas interesadas en comprarte. Al aceptar, AndRho activa el CRM en tu ERP y empieza a ordenar tus prospectos por ti.",
+			"Con el CRM activo, AndRho te dice a quién escribirle hoy antes de que el interés se enfríe.")
 		return
 	}
 	var ls []map[string]any
@@ -469,11 +554,26 @@ func leads(ctx context.Context, src Sources, a *analysis) {
 	a.add("resumen", "info", "Tienes %d prospectos con Q%.0f en juego.", len(ls), total)
 	if len(stale) > 0 {
 		a.add("notificacion", "alerta", "%s más de dos semanas sin seguimiento.", count(len(stale), "prospecto lleva", "prospectos llevan"))
-		a.propose("Dale seguimiento a tus prospectos", "Llama o escribe hoy a: "+strings.Join(stale[:min(3, len(stale))], ", ")+". Un prospecto sin respuesta se enfría.",
-			fmt.Sprintf("%d sin movimiento en 14 días.", len(stale)))
+		lvl, txt := reading("en tu CRM hoy")
+		a.proposeX("Dale seguimiento a tus prospectos", "Llama o escribe hoy a: "+strings.Join(stale[:min(3, len(stale))], ", ")+". Un prospecto sin respuesta se enfría.",
+			fmt.Sprintf("%d sin movimiento en 14 días.", len(stale)),
+			withConfidence(&Explain{Kind: "proporcion", Unit: "prospectos",
+				Headline: count(len(stale), "persona interesada lleva", "personas interesadas llevan") + " más de dos semanas sin que nadie le responda.",
+				Bars:     []ExplainBar{{Label: "Sin seguimiento", Value: float64(len(stale)), Highlight: true}, {Label: "Con seguimiento reciente", Value: float64(len(ls) - len(stale))}},
+				Takeaway: "Mientras más tiempo pasa sin contacto, menos probable es que compren. Una llamada hoy vale más que tres la próxima semana."}, lvl, txt), nil)
 	} else {
 		a.add("comentario", "buena", "Todos tus prospectos tienen seguimiento reciente.")
 	}
+}
+
+// missingModule proposes that AndRho install an Odoo app the section needs:
+// the "AndRho runs your ERP, you just accept" pipeline.
+func missingModule(a *analysis, title, module, label, body, takeaway string) {
+	a.add("notificacion", "info", "Tu ERP todavía no tiene %s activado.", label)
+	a.proposeX(title, body, "Módulo de Odoo no instalado: "+module+".",
+		withConfidence(&Explain{Kind: "pasos", Headline: "Tu ERP todavía no tiene " + label + ", por eso esta sección está vacía.",
+			Takeaway: takeaway}, "alta", "Lo revisamos directamente en tu ERP."),
+		&Action{Type: "erp_install", Modules: []string{module}, Label: "Activar " + label})
 }
 
 func branches(ctx context.Context, src Sources, a *analysis) {
@@ -533,27 +633,47 @@ func spanishWeekday(d time.Weekday) string {
 
 const translateSystem = `Eres AndRho, el analista de datos de una pyme en Guatemala. Recibes hallazgos ya calculados con estadística.
 Tu trabajo es explicarlos al dueño del negocio en español claro, cálido y directo, sin tecnicismos ni inventar números.
-Devuelve {"resumen": "2 o 3 frases con lo más importante", "sugerencias": [{"titulo": "acción concreta en menos de 8 palabras", "cuerpo": "qué hacer y por qué, en 1 o 2 frases", "evidencia": "el dato que la respalda"}]} con 0 a 3 sugerencias basadas solo en los hallazgos.`
+Nunca menciones términos estadísticos (ANOVA, p, F, Tukey, regresión, eta, significancia, varianza): di qué pasa y qué hacer.
+Devuelve {"resumen": "2 o 3 frases con lo más importante", "sugerencias": [{"base": índice (desde 0) de la propuesta en la que se basa o -1, "titulo": "acción concreta en menos de 8 palabras", "cuerpo": "qué hacer y por qué, en 1 o 2 frases", "evidencia": "el dato que la respalda"}]} con 0 a 3 sugerencias basadas solo en los hallazgos y las propuestas.`
 
 func translate(ctx context.Context, client *ai.Client, accountID, section string, a analysis) (string, []Proposal, error) {
-	in, _ := json.Marshal(map[string]any{"seccion": section, "hallazgos": a.findings, "propuestas": a.proposals})
+	type propIn struct {
+		Indice    int    `json:"indice"`
+		Titulo    string `json:"titulo"`
+		Cuerpo    string `json:"cuerpo"`
+		Evidencia string `json:"evidencia"`
+	}
+	props := make([]propIn, len(a.proposals))
+	for i, p := range a.proposals {
+		props[i] = propIn{i, p.Title, p.Body, p.Evidence}
+	}
+	in, _ := json.Marshal(map[string]any{"seccion": section, "hallazgos": a.findings, "propuestas": props})
 	var out struct {
 		Resumen     string `json:"resumen"`
 		Sugerencias []struct {
+			Base                      *int `json:"base"`
 			Titulo, Cuerpo, Evidencia string
 		} `json:"sugerencias"`
 	}
-	if err := client.JSON(ctx, "insights", accountID, ai.WithContext(translateSystem), string(in), 700, &out); err != nil {
+	if err := client.JSON(ctx, "insights", accountID, ai.WithContext(translateSystem), string(in), 800, &out); err != nil {
 		return "", nil, err
 	}
 	if strings.TrimSpace(out.Resumen) == "" {
 		return "", nil, fmt.Errorf("insights: empty summary")
 	}
-	props := []Proposal{}
+	res := []Proposal{}
 	for _, s := range out.Sugerencias {
-		if s.Titulo != "" && s.Cuerpo != "" {
-			props = append(props, Proposal{Title: s.Titulo, Body: s.Cuerpo, Evidence: s.Evidencia})
+		if s.Titulo == "" || s.Cuerpo == "" {
+			continue
 		}
+		p := Proposal{Title: s.Titulo, Body: s.Cuerpo, Evidence: s.Evidencia}
+		// The picture, the action and the technical evidence stay those of
+		// the computed proposal it rewrites: Claude only words it.
+		if s.Base != nil && *s.Base >= 0 && *s.Base < len(a.proposals) {
+			src := a.proposals[*s.Base]
+			p.Explain, p.Action, p.Evidence = src.Explain, src.Action, src.Evidence
+		}
+		res = append(res, p)
 	}
-	return out.Resumen, props, nil
+	return out.Resumen, res, nil
 }
