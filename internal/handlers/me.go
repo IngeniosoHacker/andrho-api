@@ -58,15 +58,18 @@ func (h *Handler) Me(c *gin.Context) {
 		return
 	}
 
+	businessType, _ := db.BusinessType(ctx, h.Accounts, acc.ID)
+
 	c.JSON(http.StatusOK, models.MeResponse{
-		UserID:      user.ID,
-		AccountID:   acc.ID,
-		Email:       user.Email,
-		DisplayName: user.DisplayName,
-		Role:        user.Role,
-		CompanyName: acc.CompanyName,
-		SiteID:      acc.SiteID,
-		Plan:        acc.Plan,
-		StaffRole:   staffRole,
+		UserID:       user.ID,
+		AccountID:    acc.ID,
+		Email:        user.Email,
+		DisplayName:  user.DisplayName,
+		Role:         user.Role,
+		CompanyName:  acc.CompanyName,
+		SiteID:       acc.SiteID,
+		Plan:         acc.Plan,
+		StaffRole:    staffRole,
+		BusinessType: businessType,
 	})
 }

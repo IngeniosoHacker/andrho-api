@@ -61,6 +61,8 @@ type Sources struct {
 	SiteID  string
 	Odoo    *odoo.Client
 	Stats   *rstats.Client
+	// BusinessType (internal/business) decides what Inicio leads with.
+	BusinessType string
 }
 
 type analysis struct {
@@ -104,7 +106,7 @@ func Run(ctx context.Context, src Sources, client *ai.Client, accountID, section
 		branches(ctx, src, &a)
 	case "inicio", "resumen":
 		// The whole business at a glance: the headline of each area.
-		for _, f := range []func(context.Context, Sources, *analysis){web, customers, inventory} {
+		for _, f := range headlineParts(src.BusinessType) {
 			var part analysis
 			f(ctx, src, &part)
 			if part.hasData {
@@ -676,4 +678,16 @@ func translate(ctx context.Context, client *ai.Client, accountID, section string
 		res = append(res, p)
 	}
 	return out.Resumen, res, nil
+}
+
+// headlineParts is what Inicio summarizes, most important first, by type of
+// business: a service business lives on its prospects, not its stock.
+func headlineParts(businessType string) []func(context.Context, Sources, *analysis) {
+	switch businessType {
+	case "servicios":
+		return []func(context.Context, Sources, *analysis){leads, customers, web}
+	case "restaurantes", "ventas":
+		return []func(context.Context, Sources, *analysis){inventory, customers, web}
+	}
+	return []func(context.Context, Sources, *analysis){web, customers, inventory}
 }

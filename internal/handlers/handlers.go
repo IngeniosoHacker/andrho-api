@@ -15,6 +15,7 @@ import (
 	"github.com/IngeniosoHacker/andrho-api/internal/provision"
 	"github.com/IngeniosoHacker/andrho-api/internal/rstats"
 	"github.com/IngeniosoHacker/andrho-api/internal/secret"
+	"github.com/IngeniosoHacker/andrho-api/internal/sites"
 	"github.com/IngeniosoHacker/andrho-api/internal/vps"
 )
 
@@ -45,7 +46,8 @@ func New(accounts, tracker *pgxpool.Pool, rdb *redis.Client, cfg *config.Config)
 	}
 	h.Secrets = box
 	h.Stats = &rstats.Client{VPS: runner} // R for the Web insights, on the VPS
-	h.Provision = &provision.Provisioner{DB: accounts, VPS: runner, Secrets: box, DBMode: cfg.OdooDBMode, DashboardURL: cfg.DashboardURL}
+	h.Provision = &provision.Provisioner{DB: accounts, VPS: runner, Secrets: box, DBMode: cfg.OdooDBMode, DashboardURL: cfg.DashboardURL,
+		Sites: sites.FromEnv()}
 	h.AI = ai.New(cfg.AnthropicAPIKey, cfg.AnthropicModel, func(ctx context.Context, u ai.Usage) {
 		// Detached: the request's context may be gone by the time we write.
 		err := db.RecordTokenUsage(context.WithoutCancel(ctx), accounts, db.TokenUsage{

@@ -80,6 +80,9 @@ func New(h *handlers.Handler) *gin.Engine {
 		accountGroup.POST("/me/heartbeat", h.Heartbeat)
 		accountGroup.GET("/me/preferences", h.GetPreferences)
 		accountGroup.PUT("/me/preferences", h.SavePreferences)
+		accountGroup.GET("/business-type", h.GetBusinessType)
+		accountGroup.PUT("/business-type", middleware.RequireRole("admin"), h.SetBusinessType)
+		accountGroup.GET("/site", h.AccountSite)
 		accountGroup.GET("/logo", h.AccountLogo)
 		accountGroup.POST("/erp", middleware.RequireRole("admin"), h.ConnectERP)
 	}
@@ -110,6 +113,8 @@ func New(h *handlers.Handler) *gin.Engine {
 	// Public: a site's published articles, read by the site itself (its
 	// /articulos/ pages). site_id is the same public id the tracker uses.
 	r.GET("/public/sites/:siteId/articles", h.PublicArticles)
+	r.GET("/public/sites/:siteId/logo", h.PublicLogo)
+	r.GET("/public/site", h.PublicSite)
 	r.GET("/public/sites/:siteId/articles/:slug", h.PublicArticle)
 
 	// The AndRho panel: analysis of a section when it's opened.

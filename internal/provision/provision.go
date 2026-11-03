@@ -12,7 +12,9 @@
 //	erp      (always) -> Odoo + PostgreSQL on the VPS with OdooModules
 //	                     (VPS/odoo/provision-client.sh, image from andrho_odoo)
 //	whatsapp = number -> the client in AndRho's WhatsApp solution (VPS/whatsapp/register-client.sh)
-//	web_page = true   -> a website task for Creators, with the brand brief
+//	web_page = true   -> the AndRho site on Railway ("en construcción" at
+//	                     web.<client_id>.andrho.com, internal/sites) and a
+//	                     website task for Creators, with the brand brief
 //	meta     = id     -> waits for AndRho's approval as a Meta Tech Provider
 package provision
 
@@ -31,9 +33,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/IngeniosoHacker/andrho-api/internal/analyzer"
+	"github.com/IngeniosoHacker/andrho-api/internal/business"
 	"github.com/IngeniosoHacker/andrho-api/internal/db"
 	"github.com/IngeniosoHacker/andrho-api/internal/matching"
 	"github.com/IngeniosoHacker/andrho-api/internal/secret"
+	"github.com/IngeniosoHacker/andrho-api/internal/sites"
 	"github.com/IngeniosoHacker/andrho-api/internal/vps"
 )
 
@@ -78,6 +82,16 @@ func (r *Request) Fill(modules []string, phone string) {
 	}
 }
 
+// FillType adds the Odoo apps of the account's type of business
+// (internal/business) and, for a business without a website, the AndRho site.
+func (r *Request) FillType(businessType string, hasWebsite string) {
+	r.OdooModules = business.OdooApps(businessType, r.OdooModules)
+	if r.WebPage == nil && hasWebsite == "no" {
+		yes := true
+		r.WebPage = &yes
+	}
+}
+
 // Account is who the jobs are for. The owner's email and name become the
 // ERP's administrator: they enter it from the dashboard, never with an
 // Odoo password.
@@ -99,6 +113,10 @@ type Brief struct {
 	HasLogo   bool     `json:"has_logo"`
 	Modules   []string `json:"modules"`
 	Sectors   []string `json:"sectors"`
+	// The type of business and its site structure, for the Creator.
+	BusinessType string         `json:"business_type,omitempty"`
+	Site         *business.Site `json:"site,omitempty"`
+	SiteHost     string         `json:"site_host,omitempty"`
 }
 
 // Provisioner runs the jobs.
@@ -113,6 +131,8 @@ type Provisioner struct {
 	// DashboardURL is where the ERP sends people back to (its login page,
 	// logout and "Volver a AndRho").
 	DashboardURL string
+	// Sites is the AndRho websites setup (hosts on the Railway sites service).
+	Sites sites.Config
 }
 
 // Statuses.
@@ -288,6 +308,29 @@ func (p *Provisioner) Run(ctx context.Context, acc Account, j db.ProvisioningJob
 		set(StatusWaitingMeta, "Tu número quedó registrado. La conexión se activa cuando Meta apruebe a AndRho como Tech Provider.", res, true)
 
 	case "website":
+		// The site exists right away, "en construcción", on the sites service.
+		host, herr := p.Sites.Host(acc.ClientID)
+		if herr == nil {
+			state, derr := p.Sites.Setup(ctx, host)
+			if derr != nil {
+				state = "error: " + derr.Error()
+			}
+			if err := db.SaveAccountSite(ctx, p.DB, db.AccountSite{AccountID: acc.ID, Host: host, Status: "construyendo", DomainState: state}); err != nil {
+				set(StatusError, "No pudimos crear tu sitio todavía; lo reintentamos solos.", map[string]string{"error": err.Error()}, true)
+				return
+			}
+			if derr != nil {
+				log.Printf("provision: %s site domain: %v", acc.ClientID, derr)
+			}
+			// The Creator gets where it lives and the structure for its type.
+			var b map[string]any
+			_ = json.Unmarshal(j.Input, &b)
+			if b == nil {
+				b = map[string]any{}
+			}
+			b["site_host"] = host
+			j.Input, _ = json.Marshal(b)
+		}
 		// The Creator best suited right now (internal/matching), not just the first one.
 		res, found, err := matching.Assign(ctx, p.DB, acc.ID, "web")
 		if err != nil {
@@ -303,11 +346,16 @@ func (p *Provisioner) Run(ctx context.Context, acc Account, j db.ProvisioningJob
 			task.Match, _ = json.Marshal(res)
 			detail = "Un Creator ya está trabajando en tu sitio."
 		}
+		result := map[string]string{"task_id": task.ID}
+		if herr == nil {
+			result["url"] = "https://" + host
+			detail += " Mientras tanto, https://" + host + " ya muestra que viene en camino."
+		}
 		if _, err := db.CreateCreatorTask(ctx, p.DB, task); err != nil {
 			set(StatusError, "No pudimos crear la tarea de tu sitio.", map[string]string{"error": err.Error()}, true)
 			return
 		}
-		set(StatusRunning, detail, map[string]string{"task_id": task.ID}, true)
+		set(StatusRunning, detail, result, true)
 	}
 }
 

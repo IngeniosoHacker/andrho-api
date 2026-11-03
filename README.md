@@ -372,6 +372,29 @@ New proposals are filed as suggestions (`sugerida`) once per title, within
 the plan's monthly quota (`quota_reached` tells when one was held back).
 `POST /suggestions {section}` asks for one more the same way.
 
+**Type of business** (`internal/business`). On top of the signup's
+analysis, each account has a type: `servicios` (plumbing, electricity,
+workshops…), `restaurantes` (food) or `ventas` (reselling products it
+doesn't make); manufacturing has none for now. It's inferred at signup from
+the sectors (or the description) and changed with `GET|PUT
+/account/business-type` (admin+). A type adds, after the analysis' own
+picks, the modules businesses like it use (`type_modules` in the analyzer's
+result), its Odoo apps to the ERP (e.g. `pos_restaurant`, `project`), the
+dashboard's section order, what Inicio leads with, and the structure of its
+website. Changing it proposes "Prepara tu ERP" (AndRho installs the apps).
+
+**Websites** (`internal/sites`). A business without one (`hasWebsite: "no"`,
+or the `sitio_web` module) gets `web.<site_id>.andrho.com` on the sites
+service on Railway (`andrho-tracker-dashboard/sites`), "en construcción"
+until the Creator assigned by the matching delivers; delivering publishes it
+there. `GET /account/site` for the dashboard, `GET /public/site?host=` and
+`GET /public/sites/:siteId/logo` for the sites service. Env:
+`SITE_HOST_PATTERN` (default `web.{id}.andrho.com`), and to add each domain
+by itself `RAILWAY_API_TOKEN`, `RAILWAY_SITES_SERVICE_ID`,
+`RAILWAY_ENVIRONMENT_ID`, `PORKBUN_API_KEY`, `PORKBUN_SECRET_KEY`
+(`SITE_DNS_ZONE`, default `andrho.com`). `SITE_WILDCARD=true` for a pattern
+one wildcard covers (`{id}.web.andrho.com`).
+
 **What the owner sees vs. the evidence.** Every proposal carries three
 parts, stored apart on the suggestion: `body` (what to do, plain words),
 `explain` (the "¿Por qué?" view: a headline, a chart — `comparacion`,

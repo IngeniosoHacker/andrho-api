@@ -105,3 +105,26 @@ func TestUrgency(t *testing.T) {
 		t.Errorf("second = %+v", r[1])
 	}
 }
+
+func TestTypeModulesComeAfterTheAnalysis(t *testing.T) {
+	a := recommend.Answers{Sectors: []string{"restaurantes"}, Modules: []string{"marketing"}}
+	res := Analyze(a)
+	if res.BusinessType != "restaurantes" {
+		t.Fatalf("business type = %q", res.BusinessType)
+	}
+	pos := map[string]int{}
+	for i, m := range res.Needs {
+		pos[m.Key] = i
+	}
+	if _, ok := pos["vencimientos"]; !ok {
+		t.Errorf("restaurant modules missing: %v", res.Needs)
+	}
+	for _, k := range res.TypeModules {
+		if pos[k] < pos["marketing"] {
+			t.Errorf("type module %q ranked before what the business asked for", k)
+		}
+		if res.ModuleReasons[k] == "" {
+			t.Errorf("type module %q has no reason", k)
+		}
+	}
+}

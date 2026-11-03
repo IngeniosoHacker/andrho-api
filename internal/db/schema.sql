@@ -356,3 +356,21 @@ ALTER TABLE staff ADD COLUMN IF NOT EXISTS skills TEXT[] NOT NULL DEFAULT '{}';
 ALTER TABLE creator_tasks ADD COLUMN IF NOT EXISTS suggestion_id UUID REFERENCES suggestions(id) ON DELETE SET NULL;
 ALTER TABLE creator_tasks ADD COLUMN IF NOT EXISTS match JSONB;
 CREATE INDEX IF NOT EXISTS idx_creator_tasks_suggestion ON creator_tasks (suggestion_id);
+
+-- The type of business (internal/business: servicios | restaurantes |
+-- ventas, '' = none): the configuration on top of the signup's analysis.
+-- Inferred at signup from the sectors or the description; the owner can
+-- change it.
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS business_type TEXT NOT NULL DEFAULT '';
+
+-- The account's AndRho website (sites service on Railway): its host, and
+-- whether it still shows "en construcción" or the Creator's site is live.
+CREATE TABLE IF NOT EXISTS account_sites (
+  account_id   UUID PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+  host         TEXT NOT NULL UNIQUE,
+  status       TEXT NOT NULL DEFAULT 'construyendo', -- construyendo | publicado
+  live_url     TEXT NOT NULL DEFAULT '',             -- the Creator's deployment, once published
+  domain_state TEXT NOT NULL DEFAULT '',             -- what the domain setup did (dns, railway), for staff
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);

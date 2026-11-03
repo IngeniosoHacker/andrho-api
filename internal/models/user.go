@@ -55,4 +55,6 @@ type MeResponse struct {
 	SiteID      string `json:"site_id"`
 	Plan        string `json:"plan"`
 	StaffRole   string `json:"staff_role,omitempty"` // AndRho's own team: admin | creator
+	// BusinessType: servicios | restaurantes | ventas | "" (internal/business).
+	BusinessType string `json:"business_type"`
 }

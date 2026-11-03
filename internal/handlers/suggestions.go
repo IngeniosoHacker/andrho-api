@@ -96,6 +96,7 @@ func (h *Handler) CreateSuggestion(c *gin.Context) {
 	}
 
 	src := insights.Sources{Tracker: h.Tracker, SiteID: claims.SiteID, Stats: h.Stats}
+	src.BusinessType, _ = db.BusinessType(ctx, h.Accounts, claims.AccountID)
 	if cl, err := h.odooFor(ctx, claims.AccountID); err == nil {
 		src.Odoo = cl
 	}

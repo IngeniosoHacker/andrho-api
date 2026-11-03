@@ -2,7 +2,9 @@ package analyzer
 
 import (
 	"strconv"
+	"strings"
 
+	"github.com/IngeniosoHacker/andrho-api/internal/business"
 	"github.com/IngeniosoHacker/andrho-api/internal/recommend"
 )
 
@@ -39,12 +41,63 @@ type Result struct {
 	Summary       string            `json:"summary,omitempty"`
 	ModuleReasons map[string]string `json:"module_reasons,omitempty"`
 	Source        string            `json:"source,omitempty"`
+	// BusinessType is the type inferred from the answers (internal/business:
+	// servicios, restaurantes, ventas, or "" for none). TypeModules are the
+	// modules its profile added after the analysis' own picks.
+	BusinessType string   `json:"business_type,omitempty"`
+	TypeModules  []string `json:"type_modules,omitempty"`
+}
+
+// withType appends the modules businesses of this type use that the
+// analysis didn't pick: in addition to the analysis, after its own ranking,
+// so it never pushes out what the business itself asked for.
+func withType(needs []Module, typ string) ([]Module, []string) {
+	p, ok := business.Get(typ)
+	if !ok {
+		return needs, nil
+	}
+	have := map[string]bool{}
+	for _, m := range needs {
+		have[m.Key] = true
+	}
+	added := []string{}
+	for _, k := range p.Modules {
+		if m, ok := Modules[k]; ok && !have[k] {
+			have[k] = true
+			needs = append(needs, m)
+			added = append(added, k)
+		}
+	}
+	return needs, added
+}
+
+func typeReasons(res *Result, typ string, added []string) {
+	p, ok := business.Get(typ)
+	if !ok {
+		return
+	}
+	res.BusinessType, res.TypeModules = typ, added
+	if len(added) == 0 {
+		return
+	}
+	if res.ModuleReasons == nil {
+		res.ModuleReasons = map[string]string{}
+	}
+	for _, k := range added {
+		if res.ModuleReasons[k] == "" {
+			res.ModuleReasons[k] = "Lo usan casi todos los negocios de " + strings.ToLower(p.Name) + "."
+		}
+	}
 }
 
 // Analyze builds the needs and the three packages for a's answers.
 func Analyze(a recommend.Answers) Result {
 	rec := recommend.Recommend(a)
-	return build(ruleNeeds(a), planByRecommendation[rec.Plan], rec.Reasons)
+	typ := business.Classify(a.Sectors, "")
+	needs, added := withType(ruleNeeds(a), typ)
+	res := build(needs, planByRecommendation[rec.Plan], rec.Reasons)
+	typeReasons(&res, typ, added)
+	return res
 }
 
 // ruleNeeds is the rules' ranking: recommend.SuggestModules's order (what

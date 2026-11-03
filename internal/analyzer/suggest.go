@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/IngeniosoHacker/andrho-api/internal/ai"
+	"github.com/IngeniosoHacker/andrho-api/internal/business"
 	"github.com/IngeniosoHacker/andrho-api/internal/recommend"
 )
 
@@ -59,8 +60,11 @@ func Suggest(ctx context.Context, client *ai.Client, in SuggestInput) Result {
 	rec := recommend.Recommend(a)
 	rules := ruleNeeds(a)
 	bestFit := planByRecommendation[rec.Plan]
-	base := build(rules, bestFit, rec.Reasons)
+	typ := business.Classify(a.Sectors, in.Description)
+	baseNeeds, baseAdded := withType(rules, typ)
+	base := build(baseNeeds, bestFit, rec.Reasons)
 	base.Source = "reglas"
+	typeReasons(&base, typ, baseAdded)
 	if !client.Enabled() {
 		return base
 	}
@@ -107,6 +111,7 @@ func Suggest(ctx context.Context, client *ai.Client, in SuggestInput) Result {
 	for _, k := range blend(keysOf(rules), claude, pinned) {
 		needs = append(needs, Modules[k])
 	}
+	needs, added := withType(needs, typ)
 	res := build(needs, blendPlan(bestFit, out.Plan), rec.Reasons)
 	if r := clip(out.PlanReason, 300); r != "" {
 		res.Reasons = []string{r}
@@ -119,6 +124,7 @@ func Suggest(ctx context.Context, client *ai.Client, in SuggestInput) Result {
 		}
 	}
 	res.Source = "ia"
+	typeReasons(&res, typ, added)
 	return res
 }
 

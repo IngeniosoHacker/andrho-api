@@ -201,6 +201,15 @@ func (h *Handler) UpdateCreatorTask(c *gin.Context) {
 		return
 	}
 	_ = db.LogEvent(ctx, h.Accounts, uuid.NewString(), t.AccountID, nil, "creator_task_"+status, event)
+	// A delivered website goes live on the account's AndRho host: the sites
+	// service serves the Creator's deployment there instead of the
+	// "en construcción" page.
+	if status == "entregada" && t.Kind == "website" {
+		if site, err := db.GetAccountSite(ctx, h.Accounts, t.AccountID); err == nil {
+			site.Status, site.LiveURL = "publicado", delivery
+			_ = db.SaveAccountSite(ctx, h.Accounts, site)
+		}
+	}
 	// The suggestion this task came from is done when the work is delivered.
 	if status == "entregada" && t.SuggestionID != nil {
 		report := "Listo: un Creator de AndRho lo hizo. Puedes verlo aquí: " + delivery

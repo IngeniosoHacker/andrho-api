@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/IngeniosoHacker/andrho-api/internal/analyzer"
+	"github.com/IngeniosoHacker/andrho-api/internal/business"
 	"github.com/IngeniosoHacker/andrho-api/internal/db"
 	"github.com/IngeniosoHacker/andrho-api/internal/provision"
 	"github.com/IngeniosoHacker/andrho-api/internal/recommend"
@@ -181,11 +182,15 @@ func (h *Handler) Register(c *gin.Context) {
 
 	var answers json.RawMessage = []byte(`{}`)
 	var sectors []string
+	hasWebsite := ""
 	if req.Answers != nil {
 		clean := analyzer.Sanitize(*req.Answers)
 		sectors = clean.Sectors
+		hasWebsite = clean.HasWebsite
 		answers, _ = json.Marshal(clean)
 	}
+	// The type of business: the configuration on top of the analysis.
+	businessType := business.Classify(sectors, req.Description)
 
 	ctx := c.Request.Context()
 	acc, user, status, msg := h.createAccountWithOwner(ctx, req.Email, req.Password, req.CompanyName, req.DisplayName, req.Plan)
@@ -209,13 +214,16 @@ func (h *Handler) Register(c *gin.Context) {
 	// The ERP always (with the Odoo modules these modules need), and meta,
 	// whatsapp and web_page filled from the modules and the phone when the
 	// request left them empty.
+	_ = db.SetBusinessType(ctx, h.Accounts, acc.ID, businessType)
 	pr := req.Provision
 	pr.Fill(modules, setup.Phone)
+	pr.FillType(businessType, hasWebsite)
 	pacc := provision.Account{ID: acc.ID, ClientID: acc.SiteID, Company: acc.CompanyName, Plan: acc.Plan,
 		OwnerEmail: user.Email, OwnerName: user.DisplayName}
 	jobs, err := h.Provision.Plan(ctx, pacc, pr, provision.Brief{
 		Company: acc.CompanyName, ClientID: acc.SiteID, Essence: req.Brand.Essence, BrandHelp: req.Brand.Help,
 		HasLogo: len(logo) > 0, Modules: modules, Sectors: sectors,
+		BusinessType: businessType, Site: siteOf(businessType),
 	})
 	if err != nil {
 		_ = db.DeleteAccount(ctx, h.Accounts, acc.ID)
@@ -234,7 +242,7 @@ func (h *Handler) Register(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, gin.H{
 		"access_token": tokens.AccessToken, "refresh_token": tokens.RefreshToken,
-		"account": acc.ToPublic(), "plan": acc.Plan, "modules": modules, "provisioning": jobs,
+		"account": acc.ToPublic(), "plan": acc.Plan, "modules": modules, "provisioning": jobs, "business_type": businessType,
 		"discount": gin.H{"percent": discountPercent, "code": discountCode},
 	})
 }
@@ -285,4 +293,11 @@ func (h *Handler) serveLogo(c *gin.Context, accountID string) {
 	c.Header("Cache-Control", "private, max-age=300")
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.Data(http.StatusOK, setup.LogoType, setup.Logo)
+}
+
+func siteOf(businessType string) *business.Site {
+	if p, ok := business.Get(businessType); ok {
+		return &p.Site
+	}
+	return nil
 }
