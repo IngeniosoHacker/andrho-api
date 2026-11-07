@@ -10,6 +10,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/IngeniosoHacker/andrho-api/internal/ai"
+	"github.com/IngeniosoHacker/andrho-api/internal/billing"
 	"github.com/IngeniosoHacker/andrho-api/internal/config"
 	"github.com/IngeniosoHacker/andrho-api/internal/db"
 	"github.com/IngeniosoHacker/andrho-api/internal/provision"
@@ -29,6 +30,9 @@ type Handler struct {
 	Provision *provision.Provisioner
 	Secrets   *secret.Box
 	Stats     *rstats.Client // R analyses for insights, run on the VPS
+	// Payments charges the checkout (internal/billing); a no-op that
+	// approves everything while PAYMENTS_ENABLED=false.
+	Payments billing.PaymentProvider
 }
 
 // New builds a Handler. AI calls record their tokens in token_usage. A bad
@@ -45,6 +49,7 @@ func New(accounts, tracker *pgxpool.Pool, rdb *redis.Client, cfg *config.Config)
 		return nil, err
 	}
 	h.Secrets = box
+	h.Payments = billing.FromEnv()
 	h.Stats = &rstats.Client{VPS: runner} // R for the Web insights, on the VPS
 	h.Provision = &provision.Provisioner{DB: accounts, VPS: runner, Secrets: box, DBMode: cfg.OdooDBMode, DashboardURL: cfg.DashboardURL,
 		Sites: sites.FromEnv()}

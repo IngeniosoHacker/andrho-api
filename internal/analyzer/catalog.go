@@ -3,11 +3,13 @@
 // ranked, and three packages built from them.
 //
 // AndRho is modular. What separates the plans is the core (what every
-// account on that plan gets) and how many modules it holds. The three
-// packages are the account plans despegue, en_orbita and galactico (see
-// accounts.plan); each takes as many of the business' modules as it fits,
-// in priority order, and says what it leaves out.
+// account on that plan gets) and how many modules it holds. The packages
+// are the plans of the catalog (internal/plans: base, plataforma,
+// despegue, en_orbita, galaxy); each takes as many of the business'
+// modules as it fits, in priority order, and says what it leaves out.
 package analyzer
+
+import "github.com/IngeniosoHacker/andrho-api/internal/plans"
 
 // Module is one piece of AndRho a business can switch on.
 type Module struct {
@@ -48,54 +50,35 @@ var Modules = map[string]Module{
 	"creators":       {"creators", "Creators", "Diseñadores y programadores reales a tu disposición.", "crecimiento", ""},
 }
 
-// Plan is one package: its core and how many modules it holds (-1 = all).
+// Plan is one package: its price, its core (what every account on the plan
+// gets, in words) and how many modules it holds (-1 = all). Built from the
+// plan catalog (internal/plans), never written here.
 type Plan struct {
 	Key         string   `json:"key"`
 	Name        string   `json:"name"`
+	Label       string   `json:"label"`
+	Price       int      `json:"price"` // quetzales al mes
 	Tagline     string   `json:"tagline"`
 	Core        []string `json:"core"`
 	ModuleLimit int      `json:"module_limit"`
 }
 
-// Plans in ascending order. Keys are accounts.plan values.
-var Plans = []Plan{
-	{
-		Key: "despegue", Name: "Despegue", Tagline: "Lo esencial para dejar de decidir a ciegas.",
-		Core: []string{
-			"Tu panel con los datos del negocio en un solo lugar",
-			"Rastreador para tu sitio web",
-			"10 sugerencias de AndRho al mes",
-			"Hasta 2 usuarios",
-		},
-		ModuleLimit: 3,
-	},
-	{
-		Key: "en_orbita", Name: "En Órbita", Tagline: "Para crecer con cada área conectada.",
-		Core: []string{
-			"Todo lo de Despegue",
-			"Análisis constante con IA que te lo explica",
-			"30 sugerencias al mes",
-			"Resumen semanal de tu negocio",
-			"Hasta 10 usuarios",
-		},
-		ModuleLimit: 6,
-	},
-	{
-		Key: "galactico", Name: "Galáctico", Tagline: "Tu negocio completo. Nada se queda en tierra.",
-		Core: []string{
-			"Todo lo de En Órbita",
-			"Habla con AndRho por WhatsApp",
-			"Creators: diseñadores y programadores a tu disposición",
-			"Sugerencias ilimitadas",
-			"Usuarios ilimitados",
-		},
-		ModuleLimit: -1,
-	},
-}
+// Plans in ascending order, from internal/plans. Keys are accounts.plan values.
+var Plans = func() []Plan {
+	out := []Plan{}
+	for _, p := range plans.All() {
+		out = append(out, Plan{Key: p.ID, Name: p.Name, Label: p.Label, Price: p.Price, Tagline: p.Tagline,
+			Core: plans.Includes(p), ModuleLimit: p.Caps.ModuleLimit})
+	}
+	return out
+}()
+
+// Complete is the plan with everything (the one AndRho puts forward).
+var Complete = Plans[len(Plans)-1].Key
 
 // planByRecommendation maps the survey's plans (internal/recommend) to the
 // account plans.
-var planByRecommendation = map[string]string{"basico": "despegue", "crecer": "en_orbita", "todo": "galactico"}
+var planByRecommendation = map[string]string{"basico": "despegue", "crecer": "en_orbita", "todo": Complete}
 
 // Every account gets an ERP: Odoo with inventory as its base. BaseOdooModules
 // is what every client's database installs; odooByModule adds the Odoo apps

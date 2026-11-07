@@ -77,10 +77,7 @@ func (h *Handler) storeProposals(ctx context.Context, accountID, section string,
 	if err != nil {
 		return 0, false, err
 	}
-	limit, ok := suggestionQuotaByPlan[acc.Plan]
-	if !ok {
-		limit = suggestionQuotaByPlan["base"]
-	}
+	limit := suggestionQuotaFor(acc.Plan)
 	used, err := db.CountSuggestionsThisMonth(ctx, h.Accounts, accountID)
 	if err != nil {
 		return 0, false, err

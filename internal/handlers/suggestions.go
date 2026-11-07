@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"errors"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -56,7 +57,7 @@ type createSuggestionRequest struct {
 // suggestion for a section now. It runs the section's analysis
 // (internal/insights) and files the first proposal not already on the
 // account; 200 with suggestion null when there's nothing new. Enforces the
-// monthly quota (suggestionQuotaByPlan in account.go).
+// monthly quota (suggestionQuotaFor in account.go, from internal/plans).
 func (h *Handler) CreateSuggestion(c *gin.Context) {
 	claims, ok := currentClaims(c)
 	if !ok {
@@ -79,10 +80,7 @@ func (h *Handler) CreateSuggestion(c *gin.Context) {
 		return
 	}
 
-	limit, ok := suggestionQuotaByPlan[acc.Plan]
-	if !ok {
-		limit = suggestionQuotaByPlan["base"]
-	}
+	limit := suggestionQuotaFor(acc.Plan)
 	if limit >= 0 {
 		used, err := db.CountSuggestionsThisMonth(ctx, h.Accounts, claims.AccountID)
 		if err != nil {
@@ -190,6 +188,11 @@ func (h *Handler) UpdateSuggestionStatus(c *gin.Context) {
 		assignment, err = h.acceptSuggestion(ctx, claims.AccountID, s)
 		if err != nil {
 			_ = db.UpdateSuggestionStatus(ctx, h.Accounts, id, s.Status)
+			if errors.Is(err, errCreatorQuota) {
+				_, msg, _ := strings.Cut(err.Error(), ": ")
+				c.JSON(http.StatusPaymentRequired, gin.H{"error": msg, "code": "creator_quota"})
+				return
+			}
 			respondError(c, http.StatusInternalServerError, "no pudimos asignar esta sugerencia; intenta de nuevo")
 			return
 		}

@@ -51,7 +51,8 @@ func TestBlendPlan(t *testing.T) {
 	cases := [][3]string{
 		{"despegue", "galactico", "en_orbita"},
 		{"despegue", "en_orbita", "en_orbita"},
-		{"en_orbita", "galactico", "galactico"},
+		{"en_orbita", "galactico", "galaxy"},
+		{"base", "galaxy", "despegue"},
 		{"galactico", "despegue", "en_orbita"},
 		{"en_orbita", "luna", "en_orbita"},
 	}

@@ -201,12 +201,12 @@ func (h *Handler) UpdateCreatorTask(c *gin.Context) {
 		return
 	}
 	_ = db.LogEvent(ctx, h.Accounts, uuid.NewString(), t.AccountID, nil, "creator_task_"+status, event)
-	// A delivered website goes live on the account's AndRho host: the sites
-	// service serves the Creator's deployment there instead of the
-	// "en construcción" page.
+	// A delivered website: the Creator deployed it to the client's own
+	// service (site-<account_id>, brief.railway_service), which already
+	// answers on its host; the delivery link is kept for the record.
 	if status == "entregada" && t.Kind == "website" {
 		if site, err := db.GetAccountSite(ctx, h.Accounts, t.AccountID); err == nil {
-			site.Status, site.LiveURL = "publicado", delivery
+			site.LiveURL = delivery
 			_ = db.SaveAccountSite(ctx, h.Accounts, site)
 		}
 	}

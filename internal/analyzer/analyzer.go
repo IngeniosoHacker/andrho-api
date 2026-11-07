@@ -2,13 +2,15 @@ package analyzer
 
 import (
 	"strconv"
+
+	"github.com/IngeniosoHacker/andrho-api/internal/plans"
 	"strings"
 
 	"github.com/IngeniosoHacker/andrho-api/internal/business"
 	"github.com/IngeniosoHacker/andrho-api/internal/recommend"
 )
 
-// Package is one of the three offers: a plan, the modules it includes for
+// Package is one of the offers: a plan, the modules it includes for
 // this business and the ones it leaves out.
 type Package struct {
 	Plan
@@ -90,7 +92,7 @@ func typeReasons(res *Result, typ string, added []string) {
 	}
 }
 
-// Analyze builds the needs and the three packages for a's answers.
+// Analyze builds the needs and the packages for a's answers.
 func Analyze(a recommend.Answers) Result {
 	rec := recommend.Recommend(a)
 	typ := business.Classify(a.Sectors, "")
@@ -113,9 +115,9 @@ func ruleNeeds(a recommend.Answers) []Module {
 	return needs
 }
 
-// build fills the three packages with needs, in order.
+// build fills the packages with needs, in order.
 func build(needs []Module, bestFit string, reasons []string) Result {
-	res := Result{Needs: needs, Recommended: "galactico", BestFit: bestFit, Reasons: reasons}
+	res := Result{Needs: needs, Recommended: Complete, BestFit: bestFit, Reasons: reasons}
 	for _, p := range Plans {
 		pkg := Package{Plan: p, Modules: []Module{}, Missing: []Module{}}
 		for i, m := range needs {
@@ -139,7 +141,7 @@ func build(needs []Module, bestFit string, reasons []string) Result {
 
 func pitch(p Package, total int) string {
 	switch {
-	case len(p.Missing) == 0 && p.Key == "galactico":
+	case len(p.Missing) == 0 && p.Key == Complete:
 		return "Todo lo que tu negocio necesita, desde el primer día. Nada se queda en tierra."
 	case len(p.Missing) == 0:
 		return "Cubre lo que nos contaste. Cuando crezcas, vas a querer más espacio."
@@ -150,12 +152,11 @@ func pitch(p Package, total int) string {
 	}
 }
 
-// PlanModuleLimit is how many modules plan holds (-1 = all, unknown = 3).
+// PlanModuleLimit is how many modules plan holds (-1 = all; an unknown
+// plan, the smallest).
 func PlanModuleLimit(plan string) int {
-	for _, p := range Plans {
-		if p.Key == plan {
-			return p.ModuleLimit
-		}
+	if p, ok := plans.Get(plan); ok {
+		return p.Caps.ModuleLimit
 	}
 	return Plans[0].ModuleLimit
 }

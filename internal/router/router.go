@@ -57,6 +57,11 @@ func New(h *handlers.Handler) *gin.Engine {
 	r.POST("/analyzer/describe", middleware.DescribeRateLimit(h.Redis), h.Describe)
 	r.POST("/analyzer/suggest", middleware.SuggestRateLimit(h.Redis), h.Suggest)
 
+	// Public: the plan catalog (internal/plans) and, after picking a plan,
+	// what the next one adds and the price with add-ons.
+	r.GET("/plans", h.ListPlans)
+	r.POST("/plans/quote", middleware.AnalyzerRateLimit(h.Redis), h.Quote)
+
 	// Public: the development progress shown on andrho's landing -- commits
 	// of every AndRho repo, merged and cached (internal/progress).
 	r.GET("/progress", h.Progress)
@@ -83,6 +88,7 @@ func New(h *handlers.Handler) *gin.Engine {
 		accountGroup.GET("/business-type", h.GetBusinessType)
 		accountGroup.PUT("/business-type", middleware.RequireRole("admin"), h.SetBusinessType)
 		accountGroup.GET("/site", h.AccountSite)
+		accountGroup.PUT("/site/seo", middleware.RequireRole("admin"), h.SetSiteSEO)
 		accountGroup.GET("/logo", h.AccountLogo)
 		accountGroup.POST("/erp", middleware.RequireRole("admin"), h.ConnectERP)
 	}
@@ -115,6 +121,7 @@ func New(h *handlers.Handler) *gin.Engine {
 	r.GET("/public/sites/:siteId/articles", h.PublicArticles)
 	r.GET("/public/sites/:siteId/logo", h.PublicLogo)
 	r.GET("/public/site", h.PublicSite)
+	r.GET("/public/sites/:siteId", h.PublicSiteByID)
 	r.GET("/public/sites/:siteId/articles/:slug", h.PublicArticle)
 
 	// The AndRho panel: analysis of a section when it's opened.
@@ -147,6 +154,7 @@ func New(h *handlers.Handler) *gin.Engine {
 		adminGroup.GET("/tokens", h.AdminTokens)
 		adminGroup.POST("/tokens", h.ImportTokens)
 		adminGroup.POST("/accounts/:site_id/erp", h.AdminProvisionERP)
+		adminGroup.GET("/billing/skipped", h.AdminPaymentSkipped)
 	}
 	creatorsGroup := r.Group("/creators")
 	creatorsGroup.Use(requireAuth, h.RequireStaff("creator"))

@@ -61,11 +61,20 @@ already owns and migrates its own schema.
 | `RSCRIPT_BIN`, `R_SCRIPTS_DIR` | `Rscript`, `stats` | Only for development: a local R used when `VPS_HOST` is unset. In production the Web section's R analyses run on the VPS (see below). |
 | `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_HOST_KEY`, `VPS_SCRIPTS_DIR` | — | The remote VPS where provisioning scripts run over SSH (see `../VPS/README.md`). Without `VPS_HOST`, ERP and WhatsApp provisioning wait for it. |
 | `ODOO_ALLOW_PRIVATE`        | — | `true` lets `POST /account/erp` reach private addresses (development only). |
-| `ODOO_DB_MODE`              | `shared` | `shared`, `dedicated` or `mixed` (dedicated for Galáctico). |
+| `ODOO_DB_MODE`              | `shared` | `shared`, `dedicated` or `mixed` (dedicated for Galaxy). |
 | `DASHBOARD_URL`             | — | The dashboard's address (e.g. `https://dev.andrho.com/dashboard/`). Each provisioned ERP sends people back there: its login page, logout and "Volver a AndRho". |
 | `SECRETS_KEY`               | `JWT_SECRET` | Encrypts stored credentials (Odoo). Set once and keep. |
 | `ANDRHO_ADMINS`             | — | CSV of emails: AndRho staff admins (internal metrics). |
 | `ANDRHO_CREATORS`           | `test@andrho.dev` | CSV of emails: Creators (build customer sites). |
+| `SITE_HOST_PATTERN`         | `{id}.web.andrho.com` | A client site's host; `{id}` is its subdomain. |
+| `SITE_WILDCARD`             | `true` | One wildcard (`*.web.andrho.com` on sites-router) covers every site. `false` turns on the per-host Railway domain + Porkbun DNS (only for a client's own domain). |
+| `RAILWAY_API_TOKEN`         | — | Railway API token with access to the `Clients` project. |
+| `RAILWAY_CLIENTS_PROJECT_ID`, `RAILWAY_CLIENTS_ENVIRONMENT_ID` | — | The `Clients` project and its `production` environment, where each `site-<account_id>` service is created. Without them sites stay `deploying` and `account_sites.domain_state` says what's missing. |
+| `SITES_API_URL`             | — | andrho-api's public URL, given to each client's site service (`ANDRHO_API_URL` there). |
+| `SITES_TEMPLATE_REPO`, `SITES_TEMPLATE_BRANCH`, `SITES_TEMPLATE_ROOT` | `IngeniosoHacker/andrho-tracker-dashboard`, `main`, `sites` | What each client's service is deployed from. |
+| `RAILWAY_ROUTER_SERVICE_ID` | — | sites-router's id, only for `SITE_WILDCARD=false`, a client's own domain or `cmd/sites-wildcard`. Replaces `RAILWAY_SITES_SERVICE_ID` (still read as a fallback). |
+| `PORKBUN_API_KEY`, `PORKBUN_SECRET_KEY`, `SITE_DNS_ZONE` | —, —, `andrho.com` | Optional: only for own domains (`SITE_WILDCARD=false`) and `cmd/sites-wildcard`. |
+| `PAYMENTS_ENABLED`          | `false` | Checkout charges through a `PaymentProvider` (`internal/billing`). There is no real provider yet: accounts are created with `billing_status=pending_payment`, `payment_skipped=true`. |
 
 In development, a `.env` file is loaded automatically (via `godotenv`) if
 present; its absence is not an error. In production (Railway), env vars are
@@ -262,7 +271,8 @@ and custom, end here:
 ```json
 { "email": "...", "password": "...", "company_name": "...", "display_name": "...",
   "setup": "rapida | personalizada",
-  "plan": "despegue | en_orbita | galactico",
+  "plan": "base | plataforma | despegue | en_orbita | galaxy",
+  "addons": [{ "feature_id": "sitio_web_basico", "qty": 1 }],
   "modules": ["inventario", "sitio_web", "whatsapp"],
   "answers": { "...survey answers, optional" }, "description": "optional",
   "phone": "+502 5555 5555",
@@ -300,7 +310,7 @@ the background:
 | --- | --- | --- |
 | `erp` | Odoo + PostgreSQL on the VPS (`VPS/odoo/provision-client.sh` over SSH, `ODOO_MODULES` = the list above, image built from `andrho_odoo`); the access is stored in `odoo_connections`, password encrypted with `SECRETS_KEY` | `VPS_*` (`esperando_vps`) |
 | `whatsapp` | The client in AndRho's WhatsApp solution (`VPS/whatsapp/register-client.sh`) | the VPS, then Meta (`esperando_meta`) |
-| `website` | A website task for Creators (`creator_tasks`) with the brand brief, assigned to the first creator | — |
+| `website` | The client's site (its own Railway service, see **Websites**) and a website task for Creators (`creator_tasks`) with the brand brief, assigned by the matching. Only when the plan or the `sitio_web_basico` add-on includes a website; otherwise the site is recorded as `offered` and starts by itself when the plan changes (`PATCH /account/plan`) | Railway (background) |
 | `meta` | Nothing yet | Meta's Tech Provider approval |
 
 While the `erp` job runs, the script's `PROGRESS <0-100> <text>` lines
@@ -310,8 +320,35 @@ name); the script also returns the SSO secret, stored sealed in
 `odoo_connections.sso_secret`.
 
 Jobs waiting for the VPS or failed are retried every 10 minutes (5 tries).
-The modules can't exceed the plan's limit (3, 6, all). Nothing is charged:
-every plan is free during the beta.
+The modules can't exceed the plan's limit (1, 2, 3, 6, all). Before
+provisioning, the **checkout** (`internal/billing`) prices the plan and its
+add-ons from the catalog (`internal/plans`) and stores them in
+`account_plan`; with `PAYMENTS_ENABLED=false` nothing is charged
+(`billing_status=pending_payment`, `payment_skipped=true`). The response adds
+`checkout` (`quote`, `billing_status`, `payment_skipped`) and `site` (when
+it was only offered). `GET /admin/billing/skipped` lists the accounts that
+skipped payment (`db.PaymentSkippedQuery`, also runnable in psql).
+
+### Plans: `GET /plans`, `POST /plans/quote`
+
+The catalog (`internal/plans`) is the single source of plans, prices,
+limits, capabilities and add-ons: base (Q120), plataforma (Q349), despegue
+(Q750), en_orbita (Q1,200), galaxy (Q2,990; `galactico` is accepted as its
+old id). Gates read capabilities (`plans.Effective(plan, addons)`), never a
+plan's name.
+
+`POST /plans/quote` `{ "plan": "plataforma", "addons": [{ "feature_id": "sitio_web_basico" }], "needs": ["sitio_web"] }`
+returns `plan` (with `includes`), `next_plan`, `features`
+(`getNextPlanFeatures`: what the next plan adds, the analysis' needs first,
+each with `featureId`, `label`, `detail`, `addon` {price, max_qty}, `requires`)
+and `quote` (`calculateAddonPrice`: `basePrice`, `addons`, `addonsTotal`,
+`total`, `nextPlan`, `nextPlanPrice`, `upgradeIsCheaper`). Add-on price =
+⌈Δ × weight / Σweights × 1.3⌉ to Q5, so buying everything separately always
+costs more than the next plan. Only the next plan's add-ons are offered.
+
+Creator tasks per month come from the plan (0/0/1/2/4) plus `creator_task`
+add-ons; accepting a suggestion beyond that answers `402` with
+`code: "creator_quota"`. The website build doesn't count.
 
 `GET /account/provisioning` returns the setup, the jobs and the Creators
 tasks of the account; `GET /account/logo` the uploaded logo. `/auth/me` now
@@ -383,17 +420,23 @@ result), its Odoo apps to the ERP (e.g. `pos_restaurant`, `project`), the
 dashboard's section order, what Inicio leads with, and the structure of its
 website. Changing it proposes "Prepara tu ERP" (AndRho installs the apps).
 
-**Websites** (`internal/sites`). A business without one (`hasWebsite: "no"`,
-or the `sitio_web` module) gets `web.<site_id>.andrho.com` on the sites
-service on Railway (`andrho-tracker-dashboard/sites`), "en construcción"
-until the Creator assigned by the matching delivers; delivering publishes it
-there. `GET /account/site` for the dashboard, `GET /public/site?host=` and
-`GET /public/sites/:siteId/logo` for the sites service. Env:
-`SITE_HOST_PATTERN` (default `web.{id}.andrho.com`), and to add each domain
-by itself `RAILWAY_API_TOKEN`, `RAILWAY_SITES_SERVICE_ID`,
-`RAILWAY_ENVIRONMENT_ID`, `PORKBUN_API_KEY`, `PORKBUN_SECRET_KEY`
-(`SITE_DNS_ZONE`, default `andrho.com`). `SITE_WILDCARD=true` for a pattern
-one wildcard covers (`{id}.web.andrho.com`).
+**Websites** (`internal/sites`, `internal/provision/sites.go`). A business
+without one (`hasWebsite: "no"`, or the `sitio_web` module) whose plan
+includes a website gets `<subdomain>.web.andrho.com`: the subdomain is
+reserved from its name (lower case, no accents, `[a-z0-9-]`, ≤ 40, no
+reserved words, `-2`, `-3`… when taken); its own Railway service
+`site-<account_id>` is created in the `Clients` project from the template
+(`andrho-tracker-dashboard/sites`, `SITE_MODE=site`), its `*.up.railway.app`
+domain removed, and once deployed it's `live` (`domain_state=wildcard`).
+sites-router (same code, `SITE_MODE=router`, owns `*.web.andrho.com`)
+forwards each host to its service over the private network. Every step is
+idempotent and retried each minute (`SiteLoop`); old `web.<id>.andrho.com`
+sites are moved at boot, keeping the old host (`legacy_host`) for a 301.
+`GET /account/site` and `PUT /account/site/seo` (title, description, image,
+Search Console token, branches for LocalBusiness) for the dashboard;
+`GET /public/site?host=` for sites-router; `GET /public/sites/:siteId` and
+`/logo` for the client's service. One-time wildcard setup:
+`go run ./cmd/sites-wildcard` (see its doc comment).
 
 **What the owner sees vs. the evidence.** Every proposal carries three
 parts, stored apart on the suggestion: `body` (what to do, plain words),
@@ -523,10 +566,11 @@ it needs.
 All return:
 
 - `needs`: every module the business needs, most important first.
-- `packages`: Despegue (3 modules), En Órbita (6) and Galáctico (all, plus
-  WhatsApp and Creators), each with its core, the modules it includes,
-  the ones it leaves out (`missing`) and a `pitch`.
-- `recommended`: always `galactico`, the package put forward;
+- `packages`: one per plan of the catalog (Base 1 module, Plataforma 2,
+  Despegue 3, En órbita 6, Galaxy all), each with its price, label, core
+  (`plans.Includes`), the modules it includes, the ones it leaves out
+  (`missing`) and a `pitch`.
+- `recommended`: always `galaxy`, the package put forward;
   `best_fit` + `reasons`: the plan that strictly fits the answers.
 
 Every Claude call records its tokens in `token_usage` (source `analyzer`).

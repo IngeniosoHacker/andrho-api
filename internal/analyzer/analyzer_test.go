@@ -15,8 +15,8 @@ func TestAnalyzePackages(t *testing.T) {
 		Modules: []string{"inventario", "finanzas", "marketing"}, Expectations: []string{"organizarse", "reducir_perdidas"},
 	}
 	r := Analyze(a)
-	if len(r.Packages) != 3 || r.Recommended != "galactico" {
-		t.Fatalf("want 3 packages recommending galactico, got %d / %q", len(r.Packages), r.Recommended)
+	if len(r.Packages) != 5 || r.Recommended != "galaxy" {
+		t.Fatalf("want 5 packages recommending galaxy, got %d / %q", len(r.Packages), r.Recommended)
 	}
 	if len(r.Needs) < 7 {
 		t.Fatalf("a paper-based restaurant should need many modules, got %v", r.Needs)
@@ -34,19 +34,22 @@ func TestAnalyzePackages(t *testing.T) {
 		if i > 0 && len(p.Modules) < len(r.Packages[i-1].Modules) {
 			t.Errorf("%s holds fewer modules than the plan below it", p.Key)
 		}
-		if p.Recommended != (p.Key == "galactico") {
+		if p.Recommended != (p.Key == "galaxy") {
 			t.Errorf("%s recommended=%v", p.Key, p.Recommended)
 		}
 	}
-	if len(r.Packages[2].Missing) != 0 {
-		t.Errorf("galactico should leave nothing out: %v", r.Packages[2].Missing)
+	if len(r.Packages[4].Missing) != 0 {
+		t.Errorf("galaxy should leave nothing out: %v", r.Packages[4].Missing)
+	}
+	if r.Packages[0].Key != "base" || r.Packages[0].Price != 120 || r.Packages[4].Price != 2990 || len(r.Packages[2].Core) == 0 {
+		t.Errorf("packages must come from the plan catalog: %+v", r.Packages[0].Plan)
 	}
 	if r.Packages[0].Modules[0].Key != "analitica" {
 		t.Errorf("the analytics core should come first, got %s", r.Packages[0].Modules[0].Key)
 	}
 	for _, m := range r.Needs {
 		if m.Key == "creators" {
-			t.Error("creators is galactico's core, not a module need")
+			t.Error("creators comes with the plan, not a module need")
 		}
 	}
 }

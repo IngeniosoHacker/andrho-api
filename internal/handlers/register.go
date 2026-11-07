@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -13,8 +14,10 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/IngeniosoHacker/andrho-api/internal/analyzer"
+	"github.com/IngeniosoHacker/andrho-api/internal/billing"
 	"github.com/IngeniosoHacker/andrho-api/internal/business"
 	"github.com/IngeniosoHacker/andrho-api/internal/db"
+	"github.com/IngeniosoHacker/andrho-api/internal/plans"
 	"github.com/IngeniosoHacker/andrho-api/internal/provision"
 	"github.com/IngeniosoHacker/andrho-api/internal/recommend"
 )
@@ -23,8 +26,12 @@ import (
 // the business picked (plan + modules), what it told us (survey answers or a
 // description), its brand ("Cuéntanos de tu negocio") and the provisioning
 // of every service that needs it (internal/provision). Both signup paths
-// (quick and custom) end here. Nothing is charged yet: every plan is free
-// during the beta.
+// (quick and custom) end here, through the checkout (internal/billing):
+// the plan and its add-ons are priced from the catalog (internal/plans)
+// and stored in account_plan; with PAYMENTS_ENABLED=false nothing is
+// charged (billing_status pending_payment, payment_skipped). The site and
+// its Creator task are only created when the plan or an add-on includes a
+// website; otherwise it's recorded as offered (todo.md Parte B).
 
 const (
 	maxBrandEssence = 1000
@@ -36,8 +43,9 @@ type registerRequest struct {
 	Password    string             `json:"password"`
 	CompanyName string             `json:"company_name"`
 	DisplayName string             `json:"display_name"`
-	Setup       string             `json:"setup"` // rapida | personalizada
-	Plan        string             `json:"plan"`  // despegue | en_orbita | galactico
+	Setup       string             `json:"setup"`  // rapida | personalizada
+	Plan        string             `json:"plan"`   // base | plataforma | despegue | en_orbita | galaxy
+	Addons      []plans.Selection  `json:"addons"` // complementos of the next plan
 	Modules     []string           `json:"modules"`
 	Answers     *recommend.Answers `json:"answers"`
 	Description string             `json:"description"`
@@ -100,9 +108,10 @@ func (h *Handler) Register(c *gin.Context) {
 	if req.Setup != "personalizada" {
 		req.Setup = "rapida"
 	}
-	if req.Plan == "" {
+	if strings.TrimSpace(req.Plan) == "" {
 		req.Plan = "despegue"
 	}
+	planID := plans.Normalize(req.Plan)
 	if req.DisplayName == "" {
 		req.DisplayName = req.CompanyName
 	}
@@ -117,8 +126,8 @@ func (h *Handler) Register(c *gin.Context) {
 	case req.CompanyName == "" || utf8.RuneCountInString(req.CompanyName) > 120:
 		respondError(c, http.StatusBadRequest, "company_name is required")
 		return
-	case !validPlans[req.Plan] || req.Plan == "base":
-		respondError(c, http.StatusBadRequest, "plan must be despegue, en_orbita or galactico")
+	case planID == "":
+		respondError(c, http.StatusBadRequest, "plan must be one of: "+strings.Join(plans.IDs(), ", "))
 		return
 	case utf8.RuneCountInString(req.Description) > analyzer.MaxDescription:
 		respondError(c, http.StatusBadRequest, "la descripción no puede pasar de 2000 caracteres")
@@ -135,6 +144,12 @@ func (h *Handler) Register(c *gin.Context) {
 			seen[m] = true
 			modules = append(modules, m)
 		}
+	}
+	req.Plan = planID
+	selection := billing.Selection{Plan: planID, Addons: req.Addons}
+	if _, err := billing.Price(selection); err != nil {
+		respondError(c, http.StatusBadRequest, quoteError(err))
+		return
 	}
 	if limit := analyzer.PlanModuleLimit(req.Plan); limit >= 0 && len(modules) > limit {
 		respondError(c, http.StatusBadRequest, "ese paquete incluye hasta "+strconv.Itoa(limit)+" módulos")
@@ -211,6 +226,25 @@ func (h *Handler) Register(c *gin.Context) {
 		return
 	}
 
+	// Checkout: price it, "charge" it (a no-op while payments are off) and
+	// keep what was bought.
+	checkout, err := billing.Checkout(ctx, h.Payments, acc.ID, selection)
+	if err == nil && checkout.Status == "failed" {
+		err = errors.New("payment not approved")
+	}
+	if err == nil {
+		addons, _ := json.Marshal(boughtAddons(checkout.Quote))
+		err = db.SaveAccountPlan(ctx, h.Accounts, db.AccountPlan{AccountID: acc.ID, Plan: checkout.Quote.Plan, Addons: addons,
+			BasePrice: checkout.Quote.BasePrice, AddonsTotal: checkout.Quote.AddonsTotal, Total: checkout.Quote.Total,
+			BillingStatus: checkout.Status, PaymentSkipped: checkout.Charge.Skipped, PaymentProvider: checkout.Charge.Provider,
+			PaymentRef: checkout.Charge.Reference})
+	}
+	if err != nil {
+		_ = db.DeleteAccount(ctx, h.Accounts, acc.ID)
+		respondError(c, http.StatusPaymentRequired, "no pudimos completar el pago")
+		return
+	}
+
 	// The ERP always (with the Odoo modules these modules need), and meta,
 	// whatsapp and web_page filled from the modules and the phone when the
 	// request left them empty.
@@ -218,6 +252,13 @@ func (h *Handler) Register(c *gin.Context) {
 	pr := req.Provision
 	pr.Fill(modules, setup.Phone)
 	pr.FillType(businessType, hasWebsite)
+	// Parte B: the site is always offered, but only built (service + Creator
+	// task) when the plan or an add-on includes it.
+	siteOffered := false
+	if pr.WebPage != nil && *pr.WebPage && !checkout.Caps.Website {
+		no := false
+		pr.WebPage, siteOffered = &no, true
+	}
 	pacc := provision.Account{ID: acc.ID, ClientID: acc.SiteID, Company: acc.CompanyName, Plan: acc.Plan,
 		OwnerEmail: user.Email, OwnerName: user.DisplayName}
 	jobs, err := h.Provision.Plan(ctx, pacc, pr, provision.Brief{
@@ -231,20 +272,39 @@ func (h *Handler) Register(c *gin.Context) {
 		return
 	}
 
+	var site any
+	if siteOffered {
+		if s, err := h.Provision.OfferSite(ctx, pacc); err == nil {
+			site = gin.H{"host": s.Host, "status": s.Status}
+		}
+	}
+
 	tokens, err := h.issueTokenPair(ctx, user, acc)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "internal error")
 		return
 	}
 	_ = db.LogEvent(ctx, h.Accounts, uuid.NewString(), acc.ID, &user.ID, "account_created",
-		"Cuenta creada con el paquete "+req.Plan+" ("+req.Setup+")")
+		"Cuenta creada con el paquete "+req.Plan+" ("+req.Setup+"), "+plans.FormatQ(checkout.Quote.Total)+" al mes")
 	h.Provision.RunAll(pacc, jobs)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"access_token": tokens.AccessToken, "refresh_token": tokens.RefreshToken,
 		"account": acc.ToPublic(), "plan": acc.Plan, "modules": modules, "provisioning": jobs, "business_type": businessType,
 		"discount": gin.H{"percent": discountPercent, "code": discountCode},
+		"checkout": gin.H{"quote": checkout.Quote, "billing_status": checkout.Status, "payment_skipped": checkout.Charge.Skipped},
+		"site":     site,
 	})
+}
+
+// boughtAddons is what account_plan keeps: each add-on once, with its
+// quantity as priced (never 0).
+func boughtAddons(q plans.Quote) []plans.Selection {
+	out := []plans.Selection{}
+	for _, l := range q.Addons {
+		out = append(out, plans.Selection{FeatureID: l.FeatureID, Qty: l.Qty})
+	}
+	return out
 }
 
 // AccountProvisioning handles GET /account/provisioning: the setup the

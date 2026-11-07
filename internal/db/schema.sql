@@ -374,3 +374,66 @@ CREATE TABLE IF NOT EXISTS account_sites (
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Plans from the catalog (internal/plans, todo.md C1): 'base' |
+-- 'plataforma' | 'despegue' | 'en_orbita' | 'galaxy'. 'galactico' was
+-- renamed 'galaxy' (the code still accepts the old id).
+UPDATE accounts SET plan = 'galaxy' WHERE plan = 'galactico';
+
+-- What the account bought (checkout, internal/billing): the plan, the
+-- complementos (add-ons, [{feature_id, qty}]) and the monthly total in
+-- quetzales. While payments are off (PAYMENTS_ENABLED=false) every account
+-- is created with billing_status 'pending_payment' and payment_skipped =
+-- true; db.ListPaymentSkipped lists them to charge or migrate them later.
+-- accounts.plan stays the plan in force (PATCH /account/plan changes both).
+CREATE TABLE IF NOT EXISTS account_plan (
+  account_id       UUID PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+  plan             TEXT NOT NULL,
+  addons           JSONB NOT NULL DEFAULT '[]',
+  base_price       INTEGER NOT NULL DEFAULT 0,
+  addons_total     INTEGER NOT NULL DEFAULT 0,
+  total            INTEGER NOT NULL DEFAULT 0,
+  currency         TEXT NOT NULL DEFAULT 'GTQ',
+  billing_status   TEXT NOT NULL DEFAULT 'pending_payment', -- pending_payment | active | failed
+  payment_skipped  BOOLEAN NOT NULL DEFAULT false,
+  payment_provider TEXT NOT NULL DEFAULT '',
+  payment_ref      TEXT NOT NULL DEFAULT '',
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_account_plan_skipped ON account_plan (payment_skipped) WHERE payment_skipped;
+
+-- Sites on the wildcard (todo.md Parte A): each client's site is its own
+-- Railway service (site-<account_id>) in the Clients project, reached
+-- through sites-router at <subdomain>.web.andrho.com.
+--   status: offered (the plan doesn't include a site yet; no service) |
+--           deploying (service being created or deployed) | live
+--           (sites-router serves it). construyendo/publicado are the old
+--           values (one shared sites service); MigrateLegacySites moves them.
+--   subdomain: the reserved name ([a-z0-9-], ≤ 40, unique).
+--   legacy_host: the old web.<id>.andrho.com, answered with a 301.
+--   custom_domain: the client's own domain, once it has one (prepared, not
+--           wired yet: it would be added to sites-router and the subdomain
+--           would 301 to it).
+ALTER TABLE account_sites ADD COLUMN IF NOT EXISTS subdomain TEXT;
+ALTER TABLE account_sites ADD COLUMN IF NOT EXISTS railway_service_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE account_sites ADD COLUMN IF NOT EXISTS railway_service_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE account_sites ADD COLUMN IF NOT EXISTS legacy_host TEXT NOT NULL DEFAULT '';
+ALTER TABLE account_sites ADD COLUMN IF NOT EXISTS custom_domain TEXT NOT NULL DEFAULT '';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_account_sites_subdomain ON account_sites (subdomain) WHERE subdomain IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_account_sites_legacy ON account_sites (legacy_host) WHERE legacy_host <> '';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_account_sites_custom ON account_sites (custom_domain) WHERE custom_domain <> '';
+
+-- Each site's SEO (todo.md A4): metadata, Google Search Console's
+-- verification meta tag (URL-prefix property, no DNS per client) and the
+-- LocalBusiness data of each branch ([{name, address, phone, hours, lat, lng}]).
+CREATE TABLE IF NOT EXISTS site_seo (
+  account_id  UUID PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+  title       TEXT NOT NULL DEFAULT '',
+  description TEXT NOT NULL DEFAULT '',
+  og_image    TEXT NOT NULL DEFAULT '',
+  lang        TEXT NOT NULL DEFAULT 'es-GT',
+  gsc_token   TEXT NOT NULL DEFAULT '',
+  branches    JSONB NOT NULL DEFAULT '[]',
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);

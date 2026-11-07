@@ -78,6 +78,15 @@ func (h *Handler) acceptSuggestion(ctx context.Context, accountID string, s db.S
 	if err != nil {
 		return nil, err
 	}
+	// Creator tasks are limited per month by the plan and its add-ons
+	// (todo.md B2).
+	left, limit, err := h.creatorQuotaLeft(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if left <= 0 {
+		return nil, fmt.Errorf("%w: %s", errCreatorQuota, creatorQuotaMessage(limit))
+	}
 	brief, _ := json.Marshal(map[string]any{
 		"suggestion": s.Title, "body": s.Body, "evidence": s.Evidence, "section": s.Section,
 		"explain": json.RawMessage(nonEmptyJSON(s.Explain)),

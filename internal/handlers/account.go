@@ -8,24 +8,13 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/IngeniosoHacker/andrho-api/internal/db"
+	"github.com/IngeniosoHacker/andrho-api/internal/plans"
 )
 
-// suggestionQuotaByPlan is how many suggestions an account may *generate*
-// (not just have) per calendar month. -1 means unlimited (rendered as "∞" by
-// the dashboard). These numbers aren't tied to any billing system yet --
-// see accounts.plan's doc comment in schema.sql.
-var suggestionQuotaByPlan = map[string]int{
-	"base":      3,
-	"despegue":  10,
-	"en_orbita": 30,
-	"galactico": -1,
-}
-
-// validPlans mirrors the landing page's Pricing tiers (andrho-tracker-dashboard/
-// web/src/components/sections/Pricing.jsx).
-var validPlans = map[string]bool{
-	"base": true, "despegue": true, "en_orbita": true, "galactico": true,
-}
+// suggestionQuota is how many suggestions an account on plan may *generate*
+// (not just have) per calendar month: the catalog's Suggestions
+// (internal/plans). -1 means unlimited (rendered as "∞" by the dashboard).
+func suggestionQuotaFor(plan string) int { return plans.MustGet(plan).Caps.Suggestions }
 
 type suggestionQuota struct {
 	Limit         int `json:"limit"` // -1 = unlimited
@@ -34,15 +23,13 @@ type suggestionQuota struct {
 }
 
 type planResponse struct {
-	Plan            string          `json:"plan"`
+	Plan            string             `json:"plan"`
+	Capabilities    plans.Capabilities `json:"capabilities"`
 	SuggestionQuota suggestionQuota `json:"suggestions_quota"`
 }
 
 func (h *Handler) planResponseFor(c *gin.Context, accountID, plan string) (planResponse, error) {
-	limit, ok := suggestionQuotaByPlan[plan]
-	if !ok {
-		limit = suggestionQuotaByPlan["base"]
-	}
+	limit := suggestionQuotaFor(plan)
 	used, err := db.CountSuggestionsThisMonth(c.Request.Context(), h.Accounts, accountID)
 	if err != nil {
 		return planResponse{}, err
@@ -54,8 +41,10 @@ func (h *Handler) planResponseFor(c *gin.Context, accountID, plan string) (planR
 			remaining = 0
 		}
 	}
+	caps, _ := h.accountCaps(c.Request.Context(), accountID)
 	return planResponse{
-		Plan:            plan,
+		Plan:            plans.MustGet(plan).ID,
+		Capabilities:    caps,
 		SuggestionQuota: suggestionQuota{Limit: limit, UsedThisMonth: used, Remaining: remaining},
 	}, nil
 }
@@ -102,9 +91,9 @@ func (h *Handler) UpdatePlan(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	req.Plan = strings.TrimSpace(strings.ToLower(req.Plan))
-	if !validPlans[req.Plan] {
-		respondError(c, http.StatusBadRequest, "plan must be one of: base, despegue, en_orbita, galactico")
+	req.Plan = plans.Normalize(req.Plan)
+	if req.Plan == "" {
+		respondError(c, http.StatusBadRequest, "plan must be one of: "+strings.Join(plans.IDs(), ", "))
 		return
 	}
 
@@ -113,6 +102,9 @@ func (h *Handler) UpdatePlan(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "internal error")
 		return
 	}
+	_ = db.SetAccountPlanPlan(ctx, h.Accounts, claims.AccountID, req.Plan, plans.MustGet(req.Plan).Price)
+	// A site the old plan only offered starts now (todo.md B1).
+	h.activateOfferedSite(ctx, claims.AccountID)
 
 	_ = db.LogEvent(ctx, h.Accounts, uuid.NewString(), claims.AccountID, &claims.Sub, "plan_changed", "Plan cambiado a "+req.Plan)
 

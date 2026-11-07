@@ -8,6 +8,7 @@ import (
 
 	"github.com/IngeniosoHacker/andrho-api/internal/ai"
 	"github.com/IngeniosoHacker/andrho-api/internal/business"
+	"github.com/IngeniosoHacker/andrho-api/internal/plans"
 	"github.com/IngeniosoHacker/andrho-api/internal/recommend"
 )
 
@@ -36,11 +37,11 @@ const suggestTask = `Eres el analista de AndRho en el registro. Un negocio ya co
 - "catalogo": los módulos de AndRho (key, nombre, descripción, área) y los planes.
 - "reglas": el orden de módulos que propone nuestro algoritmo de reglas y el plan que mejor le queda según ese algoritmo.
 
-Decide qué módulos necesita este negocio, del más al menos importante para su operación, usando SOLO keys del catálogo (no incluyas "creators", ya viene en el plan Galáctico).
+Decide qué módulos necesita este negocio, del más al menos importante para su operación, usando SOLO keys del catálogo (no incluyas "creators", las tareas de Creators vienen con el plan).
 Puedes quitar módulos de las reglas que no le sirvan y agregar los que las reglas no vieron, pero cada uno debe estar justificado por algo que el negocio dijo.
 Mantén las áreas que el negocio pidió explícitamente.
 Para cada módulo escribe "reason": una frase corta, de tú, que diga por qué le sirve a ESTE negocio, mencionando lo que contó (sin inventar datos).
-Elige también el plan que mejor le queda (despegue, en_orbita o galactico) y por qué en una frase.
+Elige también el plan que mejor le queda (uno de los "id" de "catalogo.planes": base, plataforma, despegue, en_orbita o galaxy) y por qué en una frase.
 
 Devuelve {"summary": "una o dos frases, de tú, con lo que entendiste del negocio y lo que más necesita", "modules": [{"key": "...", "reason": "..."}], "plan": "...", "plan_reason": "..."}.`
 
@@ -76,7 +77,7 @@ func Suggest(ctx context.Context, client *ai.Client, in SuggestInput) Result {
 			"descripcion": clip(in.Description, MaxDescription),
 			"marca":       map[string]string{"opcion": in.Brand.Choice, "esencia": clip(in.Brand.Essence, maxEssence)},
 		},
-		"catalogo": map[string]any{"modulos": catalogForPrompt(), "planes": Plans},
+		"catalogo": map[string]any{"modulos": catalogForPrompt(), "planes": plans.All()},
 		"reglas":   map[string]any{"modulos": keysOf(rules), "plan": bestFit},
 	})
 	var out suggestOut
@@ -175,8 +176,8 @@ func blendPlan(rules, claude string) string {
 	for i, p := range Plans {
 		rank[p.Key] = i
 	}
-	r, okR := rank[rules]
-	c, okC := rank[claude]
+	r, okR := rank[plans.Normalize(rules)]
+	c, okC := rank[plans.Normalize(claude)]
 	switch {
 	case !okC:
 		return rules

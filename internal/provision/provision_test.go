@@ -30,11 +30,12 @@ func TestFillFromModules(t *testing.T) {
 
 func TestDBMode(t *testing.T) {
 	cases := []struct{ mode, plan, want string }{
-		{"shared", "galactico", "shared"},
+		{"shared", "galaxy", "shared"},
 		{"dedicated", "despegue", "dedicated"},
+		{"mixed", "galaxy", "dedicated"},
 		{"mixed", "galactico", "dedicated"},
 		{"mixed", "en_orbita", "shared"},
-		{"", "galactico", "shared"},
+		{"", "galaxy", "shared"},
 	}
 	for _, c := range cases {
 		if got := (&Provisioner{DBMode: c.mode}).dbModeFor(c.plan); got != c.want {
