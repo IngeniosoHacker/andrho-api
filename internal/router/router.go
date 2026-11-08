@@ -56,6 +56,8 @@ func New(h *handlers.Handler) *gin.Engine {
 	r.POST("/analyzer", middleware.AnalyzerRateLimit(h.Redis), h.Analyze)
 	r.POST("/analyzer/describe", middleware.DescribeRateLimit(h.Redis), h.Describe)
 	r.POST("/analyzer/suggest", middleware.SuggestRateLimit(h.Redis), h.Suggest)
+	// The colors of the logo and brand images, for the long signup.
+	r.POST("/analyzer/palette", middleware.AnalyzerRateLimit(h.Redis), h.Palette)
 
 	// Public: the plan catalog (internal/plans) and, after picking a plan,
 	// what the next one adds and the price with add-ons.
@@ -90,6 +92,12 @@ func New(h *handlers.Handler) *gin.Engine {
 		accountGroup.GET("/site", h.AccountSite)
 		accountGroup.PUT("/site/seo", middleware.RequireRole("admin"), h.SetSiteSEO)
 		accountGroup.GET("/logo", h.AccountLogo)
+		// Logo, brand images and data (signup and "Subir después").
+		accountGroup.GET("/assets", h.ListAssets)
+		accountGroup.POST("/assets", middleware.RequireRole("editor"), h.UploadAsset)
+		accountGroup.GET("/assets/:id/file", h.AssetFile)
+		accountGroup.DELETE("/assets/:id", middleware.RequireRole("admin"), h.DeleteAsset)
+		accountGroup.PUT("/kit", middleware.RequireRole("admin"), h.UpdateKit)
 		accountGroup.POST("/erp", middleware.RequireRole("admin"), h.ConnectERP)
 	}
 
@@ -164,6 +172,7 @@ func New(h *handlers.Handler) *gin.Engine {
 		creatorsGroup.PUT("/skills", h.SetCreatorSkills)
 		creatorsGroup.PATCH("/tasks/:id", h.UpdateCreatorTask)
 		creatorsGroup.GET("/tasks/:id/logo", h.CreatorTaskLogo)
+		creatorsGroup.GET("/tasks/:id/assets/:assetId", h.CreatorTaskAsset)
 	}
 
 	return r

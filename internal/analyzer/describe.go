@@ -8,6 +8,7 @@ import (
 	"unicode"
 
 	"github.com/IngeniosoHacker/andrho-api/internal/ai"
+	"github.com/IngeniosoHacker/andrho-api/internal/brand"
 	"github.com/IngeniosoHacker/andrho-api/internal/recommend"
 )
 
@@ -235,9 +236,25 @@ func Sanitize(a recommend.Answers) recommend.Answers {
 	if sat < 0 || sat > 5 {
 		sat = 0
 	}
+	team, access := a.TeamSize, a.AccessUsers
+	if team < 0 || team > 100000 {
+		team = 0
+	}
+	if access < 0 || access > 100000 {
+		access = 0
+	}
+	if access > team && team > 0 {
+		team = access
+	}
+	size := one("companySize", a.CompanySize)
+	if team > 0 {
+		size = brand.CompanySize(team)
+	}
 	return recommend.Answers{
+		TeamSize:       team,
+		AccessUsers:    access,
 		Sectors:        keep("sectors", a.Sectors),
-		CompanySize:    one("companySize", a.CompanySize),
+		CompanySize:    size,
 		SalesMethods:   keep("salesMethods", a.SalesMethods),
 		SectorAnswers:  sanitizeSectorAnswers(a.SectorAnswers),
 		RestaurantExp:  one("restaurantExpiry", a.RestaurantExp),

@@ -37,6 +37,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/IngeniosoHacker/andrho-api/internal/analyzer"
+	"github.com/IngeniosoHacker/andrho-api/internal/brand"
 	"github.com/IngeniosoHacker/andrho-api/internal/business"
 	"github.com/IngeniosoHacker/andrho-api/internal/db"
 	"github.com/IngeniosoHacker/andrho-api/internal/matching"
@@ -123,6 +124,8 @@ type Brief struct {
 	BusinessType string         `json:"business_type,omitempty"`
 	Site         *business.Site `json:"site,omitempty"`
 	SiteHost     string         `json:"site_host,omitempty"`
+	// The long signup's kit (logo, colors, data, team), when it asked.
+	Kit *brand.Kit `json:"kit,omitempty"`
 }
 
 // Provisioner runs the jobs.
@@ -299,6 +302,8 @@ func (p *Provisioner) Run(ctx context.Context, acc Account, j db.ProvisioningJob
 		}
 		_ = db.SetJobProgress(ctx, p.DB, j.ID, 100, "Tu ERP está listo.")
 		set(StatusDone, "Tu ERP está listo.", map[string]string{"url": res.URL, "db": res.DB, "login": res.Login}, true)
+		// The data the business uploaded at signup goes in now (kit.go).
+		p.MigrateData(ctx, acc)
 
 	case "whatsapp":
 		if !p.VPS.Enabled() {

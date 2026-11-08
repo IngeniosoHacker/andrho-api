@@ -16,7 +16,7 @@ import (
 )
 
 type importRequest struct {
-	Kind     string              `json:"kind"` // products | customers
+	Kind     string              `json:"kind"` // products | customers | suppliers
 	Filename string              `json:"filename"`
 	DryRun   bool                `json:"dry_run"`
 	Rows     []map[string]string `json:"rows"` // already mapped to etl.Fields
@@ -34,7 +34,7 @@ func (h *Handler) ImportERP(c *gin.Context) {
 		return
 	}
 	if _, ok := etl.Fields[req.Kind]; !ok {
-		respondError(c, http.StatusBadRequest, "kind debe ser products o customers")
+		respondError(c, http.StatusBadRequest, "kind debe ser products, customers o suppliers")
 		return
 	}
 	if len(req.Rows) == 0 || len(req.Rows) > etl.MaxRows {
@@ -74,7 +74,7 @@ func (h *Handler) ImportERP(c *gin.Context) {
 		_, _ = h.Accounts.Exec(ctx, `INSERT INTO etl_runs (id, account_id, user_id, kind, dry_run, filename, report) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 			uuid.NewString(), claims.AccountID, claims.Sub, req.Kind, req.DryRun, req.Filename, raw)
 		if !req.DryRun {
-			what := map[string]string{"products": "productos", "customers": "clientes"}[req.Kind]
+			what := etl.Labels[req.Kind]
 			_ = db.LogEvent(ctx, h.Accounts, uuid.NewString(), claims.AccountID, &claims.Sub, "erp_import",
 				"Migración de "+what+": "+strconv.Itoa(rep.Created)+" nuevos, "+strconv.Itoa(rep.Updated)+" actualizados")
 		}

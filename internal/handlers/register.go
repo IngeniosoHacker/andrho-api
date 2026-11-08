@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/IngeniosoHacker/andrho-api/internal/analyzer"
 	"github.com/IngeniosoHacker/andrho-api/internal/billing"
+	"github.com/IngeniosoHacker/andrho-api/internal/brand"
 	"github.com/IngeniosoHacker/andrho-api/internal/business"
 	"github.com/IngeniosoHacker/andrho-api/internal/db"
 	"github.com/IngeniosoHacker/andrho-api/internal/plans"
@@ -55,6 +57,9 @@ type registerRequest struct {
 		Help    bool   `json:"help"` // no brand yet, wants AndRho to propose one
 		Logo    string `json:"logo"` // data:image/png|jpeg|webp;base64,...
 	} `json:"brand"`
+	// The long signup's kit: logo, colors (and the palette kept), data
+	// (tengo | crear | despues …); the files go to /account/assets after.
+	Kit       *brand.Kit        `json:"kit"`
 	Provision provision.Request `json:"provision"`
 	// The landing's minigame result, when the visitor came from "Reclamar
 	// mi X%" (signup.html?descuento=…&destruidos=…&partida=…).
@@ -198,11 +203,25 @@ func (h *Handler) Register(c *gin.Context) {
 	var answers json.RawMessage = []byte(`{}`)
 	var sectors []string
 	hasWebsite := ""
+	var kit *brand.Kit
+	if req.Kit != nil {
+		k := req.Kit.Sanitize()
+		kit = &k
+	}
 	if req.Answers != nil {
 		clean := analyzer.Sanitize(*req.Answers)
 		sectors = clean.Sectors
 		hasWebsite = clean.HasWebsite
 		answers, _ = json.Marshal(clean)
+		if kit != nil {
+			kit.TeamSize, kit.AccessUsers = clean.TeamSize, clean.AccessUsers
+		}
+	}
+	var kitRaw json.RawMessage
+	if kit != nil && !kit.Empty() {
+		kitRaw, _ = json.Marshal(kit)
+	} else {
+		kit = nil
 	}
 	// The type of business: the configuration on top of the analysis.
 	businessType := business.Classify(sectors, req.Description)
@@ -217,7 +236,7 @@ func (h *Handler) Register(c *gin.Context) {
 	setup := db.AccountSetup{
 		AccountID: acc.ID, Setup: req.Setup, Answers: answers, Description: req.Description, Modules: modules,
 		Phone: strings.TrimSpace(req.Phone), BrandEssence: req.Brand.Essence, BrandHelp: req.Brand.Help,
-		LogoType: logoType, Logo: logo,
+		LogoType: logoType, Logo: logo, Kit: kitRaw,
 		DiscountPercent: discountPercent, DiscountCode: discountCode, GameSessionID: gameSession, VisitorID: visitorID,
 	}
 	if err := db.SaveAccountSetup(ctx, h.Accounts, setup); err != nil {
@@ -261,15 +280,25 @@ func (h *Handler) Register(c *gin.Context) {
 	}
 	pacc := provision.Account{ID: acc.ID, ClientID: acc.SiteID, Company: acc.CompanyName, Plan: acc.Plan,
 		OwnerEmail: user.Email, OwnerName: user.DisplayName}
-	jobs, err := h.Provision.Plan(ctx, pacc, pr, provision.Brief{
+	brief := provision.Brief{
 		Company: acc.CompanyName, ClientID: acc.SiteID, Essence: req.Brand.Essence, BrandHelp: req.Brand.Help,
 		HasLogo: len(logo) > 0, Modules: modules, Sectors: sectors,
-		BusinessType: businessType, Site: siteOf(businessType),
-	})
+		BusinessType: businessType, Site: siteOf(businessType), Kit: kit,
+	}
+	jobs, err := h.Provision.Plan(ctx, pacc, pr, brief)
 	if err != nil {
 		_ = db.DeleteAccount(ctx, h.Accounts, acc.ID)
 		respondError(c, http.StatusBadRequest, "revisa el número de WhatsApp")
 		return
+	}
+	// The logo is one of the account's files too (Creators download it;
+	// its colors feed the palette), and a logo or colors AndRho has to
+	// make is a task for a Creator.
+	if len(logo) > 0 {
+		_, _, _ = h.storeAsset(ctx, acc.ID, &user.ID, "logo", "logo"+logoExt[logoType], logo)
+	}
+	if err := h.Provision.BrandTask(ctx, pacc, brief); err != nil {
+		log.Printf("register: %s brand task: %v", acc.SiteID, err)
 	}
 
 	var site any
@@ -294,6 +323,7 @@ func (h *Handler) Register(c *gin.Context) {
 		"discount": gin.H{"percent": discountPercent, "code": discountCode},
 		"checkout": gin.H{"quote": checkout.Quote, "billing_status": checkout.Status, "payment_skipped": checkout.Charge.Skipped},
 		"site":     site,
+		"kit":      kit,
 	})
 }
 
@@ -354,6 +384,8 @@ func (h *Handler) serveLogo(c *gin.Context, accountID string) {
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.Data(http.StatusOK, setup.LogoType, setup.Logo)
 }
+
+var logoExt = map[string]string{"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
 
 func siteOf(businessType string) *business.Site {
 	if p, ok := business.Get(businessType); ok {

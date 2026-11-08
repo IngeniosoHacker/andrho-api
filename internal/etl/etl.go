@@ -19,7 +19,11 @@ import (
 var Fields = map[string][]string{
 	"products":  {"name", "code", "price", "cost", "qty", "category", "barcode"},
 	"customers": {"name", "email", "phone", "vat", "street", "city", "company"},
+	"suppliers": {"name", "email", "phone", "vat", "street", "city", "company"},
 }
+
+// Labels of the kinds, for events and the panel.
+var Labels = map[string]string{"products": "productos", "customers": "clientes", "suppliers": "proveedores"}
 
 // MaxRows is the most rows one run takes.
 const MaxRows = 5000
@@ -137,7 +141,7 @@ func Transform(kind string, rows []map[string]string) ([]Record, []Issue) {
 		if kind == "products" && r.Values["code"] != "" {
 			key = "code:" + strings.ToLower(r.Values["code"])
 		}
-		if kind == "customers" && r.Values["email"] != "" {
+		if kind != "products" && r.Values["email"] != "" {
 			key = "email:" + r.Values["email"]
 		}
 		if at, dup := seen[key]; dup {
@@ -154,12 +158,24 @@ func Transform(kind string, rows []map[string]string) ([]Record, []Issue) {
 // Load writes records into Odoo, matching existing ones (products by
 // internal code, then name; customers by email, then name).
 func Load(ctx context.Context, cl *odoo.Client, kind string, recs []Record, rep *Report) error {
+	// The partner ranks need Invoicing; an ERP with only Inventory gets
+	// plain contacts. Asked once per run.
+	rank := ""
+	if kind != "products" {
+		rank = "customer_rank"
+		if kind == "suppliers" {
+			rank = "supplier_rank"
+		}
+		if !cl.HasField(ctx, "res.partner", rank) {
+			rank = ""
+		}
+	}
 	for _, r := range recs {
 		var err error
 		if kind == "products" {
 			err = loadProduct(ctx, cl, r, rep)
 		} else {
-			err = loadCustomer(ctx, cl, r, rep)
+			err = loadPartner(ctx, cl, rank, r, rep)
 		}
 		if err != nil {
 			rep.Skipped++
@@ -249,9 +265,14 @@ func setStock(ctx context.Context, cl *odoo.Client, productID int, qty float64) 
 	return cl.Exec(ctx, "stock.quant", "action_apply_inventory", []any{[]int{quant}}, nil, nil)
 }
 
-func loadCustomer(ctx context.Context, cl *odoo.Client, r Record, rep *Report) error {
+// loadPartner writes a customer or a supplier (res.partner, with its rank
+// when the ERP has it).
+func loadPartner(ctx context.Context, cl *odoo.Client, rank string, r Record, rep *Report) error {
 	v := r.Values
-	vals := map[string]any{"name": v["name"], "customer_rank": 1}
+	vals := map[string]any{"name": v["name"]}
+	if rank != "" {
+		vals[rank] = 1
+	}
 	for f, of := range map[string]string{"email": "email", "phone": "phone", "vat": "vat", "street": "street", "city": "city"} {
 		if v[f] != "" {
 			vals[of] = v[f]

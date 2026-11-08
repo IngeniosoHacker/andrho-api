@@ -37,6 +37,10 @@ type Answers struct {
 	PainPoints     []string          `json:"painPoints"`
 	Modules        []string          `json:"modules"`
 	Expectations   []string          `json:"expectations"`
+	// The long signup asks for numbers: how many people work there and how
+	// many of them need AndRho (CompanySize is derived from TeamSize).
+	TeamSize    int `json:"teamSize,omitempty"`
+	AccessUsers int `json:"accessUsers,omitempty"`
 }
 
 // Result is what the survey shows (plan + reasons) and what gets stored with

@@ -306,6 +306,33 @@ CREATE TABLE IF NOT EXISTS etl_runs (
 
 CREATE INDEX IF NOT EXISTS idx_etl_runs_account ON etl_runs (account_id, created_at DESC);
 
+-- The long signup's kit (internal/brand.Kit): logo, colors and data
+-- (tengo | crear | despues; colors also logo, data also cero), the palette
+-- the person kept, the head count and how many need access.
+ALTER TABLE account_setup ADD COLUMN IF NOT EXISTS kit JSONB NOT NULL DEFAULT '{}';
+
+-- What a business uploads at signup or later from the panel: its logo,
+-- images of its brand (their colors go to the palette) and its data from
+-- the previous system (internal/intake maps it to Odoo; what maps well is
+-- loaded when the ERP is ready). Creators see them in their tasks.
+CREATE TABLE IF NOT EXISTS account_assets (
+  id           UUID PRIMARY KEY,
+  account_id   UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  kind         TEXT NOT NULL, -- logo | brand_image | data
+  filename     TEXT NOT NULL DEFAULT '',
+  content_type TEXT NOT NULL DEFAULT '',
+  size         INTEGER NOT NULL DEFAULT 0,
+  data         BYTEA NOT NULL,
+  -- images: listo; data: analizado | cargando | cargado | revisar | error
+  status       TEXT NOT NULL DEFAULT 'listo',
+  meta         JSONB NOT NULL DEFAULT '{}', -- palette, or format + mappings + reports
+  uploaded_by  UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_assets_account ON account_assets (account_id, kind, created_at);
+
 -- The AndRho panel's last analysis per section (internal/insights), so
 -- coming back to a section within minutes doesn't recompute it.
 CREATE TABLE IF NOT EXISTS insights_runs (

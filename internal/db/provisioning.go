@@ -72,6 +72,7 @@ type AccountSetup struct {
 	BrandEssence string          `json:"brand_essence"`
 	BrandHelp    bool            `json:"brand_help"`
 	HasLogo      bool            `json:"has_logo"`
+	Kit          json.RawMessage `json:"kit"` // internal/brand.Kit
 	// The minigame discount claimed at signup (0 = none).
 	DiscountPercent int    `json:"discount_percent"`
 	DiscountCode    string `json:"discount_code"`
@@ -86,19 +87,22 @@ func SaveAccountSetup(ctx context.Context, pool *pgxpool.Pool, s AccountSetup) e
 	if len(s.Answers) == 0 {
 		s.Answers = json.RawMessage(`{}`)
 	}
+	if len(s.Kit) == 0 {
+		s.Kit = json.RawMessage(`{}`)
+	}
 	var logo any
 	if len(s.Logo) > 0 {
 		logo = s.Logo
 	}
 	_, err := pool.Exec(ctx,
 		`INSERT INTO account_setup (account_id, setup, answers, description, modules, phone, brand_essence, brand_help, logo_type, logo,
-		   discount_percent, discount_code, game_session_id, visitor_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		   discount_percent, discount_code, game_session_id, visitor_id, kit)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		 ON CONFLICT (account_id) DO UPDATE SET setup = $2, answers = $3, description = $4, modules = $5, phone = $6,
 		   brand_essence = $7, brand_help = $8, logo_type = $9, logo = $10,
-		   discount_percent = $11, discount_code = $12, game_session_id = $13, visitor_id = $14, updated_at = now()`,
+		   discount_percent = $11, discount_code = $12, game_session_id = $13, visitor_id = $14, kit = $15, updated_at = now()`,
 		s.AccountID, s.Setup, s.Answers, s.Description, s.Modules, s.Phone, s.BrandEssence, s.BrandHelp, s.LogoType, logo,
-		s.DiscountPercent, s.DiscountCode, s.GameSessionID, s.VisitorID)
+		s.DiscountPercent, s.DiscountCode, s.GameSessionID, s.VisitorID, s.Kit)
 	if err != nil {
 		return fmt.Errorf("db: save account setup: %w", err)
 	}
@@ -110,10 +114,10 @@ func GetAccountSetup(ctx context.Context, pool *pgxpool.Pool, accountID string) 
 	s := AccountSetup{AccountID: accountID}
 	err := pool.QueryRow(ctx,
 		`SELECT setup, answers, description, modules, phone, brand_essence, brand_help, logo_type, COALESCE(logo, ''),
-		   discount_percent, discount_code, game_session_id, visitor_id
+		   discount_percent, discount_code, game_session_id, visitor_id, kit
 		 FROM account_setup WHERE account_id = $1`, accountID,
 	).Scan(&s.Setup, &s.Answers, &s.Description, &s.Modules, &s.Phone, &s.BrandEssence, &s.BrandHelp, &s.LogoType, &s.Logo,
-		&s.DiscountPercent, &s.DiscountCode, &s.GameSessionID, &s.VisitorID)
+		&s.DiscountPercent, &s.DiscountCode, &s.GameSessionID, &s.VisitorID, &s.Kit)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return s, ErrNotFound
 	}

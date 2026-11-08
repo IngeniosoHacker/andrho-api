@@ -123,7 +123,8 @@ func (h *Handler) CreatorTasks(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "internal error")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"tasks": tasks})
+	// Each task with its files, the brand's palette and the instructions.
+	c.JSON(http.StatusOK, gin.H{"tasks": h.withExtras(c.Request.Context(), tasks)})
 }
 
 type creatorTaskAction struct {
