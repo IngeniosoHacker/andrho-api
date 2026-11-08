@@ -52,6 +52,10 @@ func (a Addon) WeightValue() float64 { return float64(a.Weight) / 4 }
 type step struct {
 	From, To string
 	Addons   []Addon
+	// Reserved is weight (quarters) that still counts in Σpesos but isn't
+	// sold here: the website's, since it became its own product (site.go).
+	// It keeps the other add-ons at the prices they had.
+	Reserved int
 }
 
 func addUsers(n int) func(*Capabilities, int) {
@@ -98,7 +102,7 @@ var steps = []step{
 		{FeatureID: "soporte_chat", Label: "Soporte por chat", Detail: "Escríbenos y te ayudamos en el día.", Weight: 4, MaxQty: 1,
 			apply: func(c *Capabilities, _ int) { c.Support = "chat" }},
 	}},
-	{From: "plataforma", To: "despegue", Addons: []Addon{
+	{From: "plataforma", To: "despegue", Reserved: 16, Addons: []Addon{
 		{FeatureID: "sucursal_extra", Label: "Sucursal extra", Detail: "Cada sucursal con sus ventas e inventario (c/u, hasta +2).", Weight: 4, MaxQty: 2, apply: addBranches},
 		{FeatureID: "usuario_extra", Label: "Usuario extra", Detail: "Más personas de tu equipo (c/u, hasta +4).", Weight: 2, MaxQty: 4, apply: addUsers(1)},
 		{FeatureID: "whatsapp_avisos", Label: "WhatsApp: avisos y reportes", Detail: "AndRho te avisa y te manda tus reportes por WhatsApp.", Weight: 8, MaxQty: 1,
@@ -107,29 +111,23 @@ var steps = []step{
 					c.WhatsApp = "avisos"
 				}
 			}},
-		{FeatureID: "sitio_web_basico", Label: "Sitio web básico + SEO", Detail: "Tu sitio en <nombre>.web.andrho.com, hecho por Creators, listo para Google.", Weight: 16, MaxQty: 1,
-			apply: func(c *Capabilities, _ int) { c.Website = true }},
 		{FeatureID: "creator_task", Label: "Tarea de Creator (+1/mes)", Detail: "Un diseñador o programador hace una tarea para ti cada mes.", Weight: 12, MaxQty: 1, apply: addCreatorTasks(1)},
 	}},
-	{From: "despegue", To: "en_orbita", Addons: []Addon{
+	{From: "despegue", To: "en_orbita", Reserved: 16, Addons: []Addon{
 		{FeatureID: "sucursal_extra", Label: "Sucursal extra", Detail: "Cada sucursal con sus ventas e inventario (c/u, hasta +3).", Weight: 2, MaxQty: 3, apply: addBranches},
 		{FeatureID: "usuario_extra", Label: "Usuario extra", Detail: "Más personas de tu equipo (c/u, hasta +9).", Weight: 1, MaxQty: 9, apply: addUsers(1)},
 		{FeatureID: "whatsapp_control", Label: "WhatsApp: control total (400)", Detail: "Maneja AndRho con mensajes: 400 comandos al mes.", Weight: 12, MaxQty: 1,
 			Requires: []string{"whatsapp_avisos"}, apply: whatsAppControl(400, false)},
-		{FeatureID: "tienda_en_linea", Label: "Tienda en línea", Detail: "Vende desde tu sitio, con tus productos visibles en Google.", Weight: 16, MaxQty: 1,
-			Requires: []string{"website"}, apply: func(c *Capabilities, _ int) { c.Store = true }},
 		{FeatureID: "creator_task", Label: "Tarea de Creator (+1/mes)", Detail: "Una tarea más de Creators cada mes.", Weight: 10, MaxQty: 1, apply: addCreatorTasks(1)},
 		{FeatureID: "soporte_vivo", Label: "Soporte en vivo 1 h", Detail: "Una hora al mes con una persona de AndRho, en llamada.", Weight: 4, MaxQty: 1, apply: addLiveSupport},
 	}},
-	{From: "en_orbita", To: "galaxy", Addons: []Addon{
+	{From: "en_orbita", To: "galaxy", Reserved: 12, Addons: []Addon{
 		{FeatureID: "sucursales_ilimitadas", Label: "Sucursales ilimitadas", Detail: "Todas las sucursales que abras.", Weight: 8, MaxQty: 1,
 			apply: func(c *Capabilities, _ int) { c.Branches = Unlimited }},
 		{FeatureID: "usuarios_ilimitados", Label: "Usuarios ilimitados", Detail: "Todo tu equipo en AndRho.", Weight: 8, MaxQty: 1,
 			apply: func(c *Capabilities, _ int) { c.Users = Unlimited }},
 		{FeatureID: "whatsapp_propio", Label: "WhatsApp 1,500 + número propio", Detail: "1,500 comandos al mes y AndRho en tu propio número.", Weight: 16, MaxQty: 1,
 			Requires: []string{"whatsapp_avisos"}, apply: whatsAppControl(1500, true)},
-		{FeatureID: "sitio_completo", Label: "Sitio completo", Detail: "Páginas por sucursal y por servicio, y blog o landings de Creators.", Weight: 12, MaxQty: 1,
-			Requires: []string{"website"}, apply: func(c *Capabilities, _ int) { c.FullSite = true }},
 		{FeatureID: "creator_task", Label: "Tareas de Creator (+2/mes)", Detail: "Dos tareas más de Creators cada mes.", Weight: 16, MaxQty: 1, apply: addCreatorTasks(2)},
 		{FeatureID: "soporte_vivo", Label: "Soporte en vivo +1 h", Detail: "Una hora más al mes con una persona de AndRho.", Weight: 4, MaxQty: 1, apply: addLiveSupport},
 	}},
@@ -139,7 +137,7 @@ var steps = []step{
 func priceStep(s *step) {
 	from, to := catalog[index[s.From]], catalog[index[s.To]]
 	delta := to.Price - from.Price
-	total := 0
+	total := s.Reserved
 	for _, a := range s.Addons {
 		total += a.Weight
 	}
@@ -188,7 +186,7 @@ func has(c Capabilities, req string) bool {
 
 // requirementLabel says, for people, what a requirement is.
 var requirementLabel = map[string]string{
-	"website":         "Sitio web (plan Despegue o superior, o el complemento Sitio web básico)",
+	"website":         "Sitio web (incluido en En órbita y Galaxy, o compra el sitio)",
 	"whatsapp_avisos": "WhatsApp: avisos y reportes (incluido desde Despegue)",
 	"social":          "Facebook e Instagram",
 }
@@ -265,8 +263,6 @@ var featuresByNeed = map[string][]string{
 	"redes_creacion": {"facebook_instagram", "creator_task"},
 	"marketing":      {"facebook_instagram"},
 	"whatsapp":       {"whatsapp_avisos", "whatsapp_control", "whatsapp_propio"},
-	"sitio_web":      {"sitio_web_basico", "tienda_en_linea", "sitio_completo"},
-	"ventas":         {"tienda_en_linea"},
 	"creators":       {"creator_task"},
 	"rrhh":           {"usuario_extra", "usuarios_ilimitados"},
 	"logistica":      {"sucursal_extra", "sucursales_ilimitadas"},
@@ -291,7 +287,7 @@ type Selection struct {
 	Qty       int    `json:"qty"`
 }
 
-// QuoteLine is one priced add-on.
+// QuoteLine is one priced add-on (or the website's construction).
 type QuoteLine struct {
 	FeatureID string `json:"featureId"`
 	Label     string `json:"label"`
@@ -301,11 +297,14 @@ type QuoteLine struct {
 
 // Quote is the monthly price of a plan plus add-ons (todo.md C3.1).
 type Quote struct {
-	Plan          string      `json:"plan"`
-	BasePrice     int         `json:"basePrice"`
-	Addons        []QuoteLine `json:"addons"`
-	AddonsTotal   int         `json:"addonsTotal"`
-	Total         int         `json:"total"`
+	Plan        string      `json:"plan"`
+	BasePrice   int         `json:"basePrice"`
+	Addons      []QuoteLine `json:"addons"`
+	AddonsTotal int         `json:"addonsTotal"`
+	Total       int         `json:"total"` // al mes
+	// Charged once: the website's construction.
+	Setup         []QuoteLine `json:"setup"`
+	SetupTotal    int         `json:"setupTotal"`
 	NextPlan      string      `json:"nextPlan,omitempty"` // "" on Galaxy
 	NextPlanPrice int         `json:"nextPlanPrice,omitempty"`
 	// UpgradeIsCheaper: total >= the next plan's price; the UI then
@@ -330,7 +329,7 @@ func CalculateAddonPrice(planID string, selected []Selection) (Quote, error) {
 	if !ok {
 		return Quote{}, fmt.Errorf("%w: %q", ErrUnknownPlan, planID)
 	}
-	q := Quote{Plan: p.ID, BasePrice: p.Price, Addons: []QuoteLine{}}
+	q := Quote{Plan: p.ID, BasePrice: p.Price, Addons: []QuoteLine{}, Setup: []QuoteLine{}}
 	if next, ok := Next(p.ID); ok {
 		q.NextPlan, q.NextPlanPrice = next.ID, next.Price
 	}
@@ -341,8 +340,21 @@ func CalculateAddonPrice(planID string, selected []Selection) (Quote, error) {
 	}
 	qty := map[string]int{}
 	order := []string{}
+	var site *SiteOption
 	for _, sel := range selected {
 		id := strings.TrimSpace(sel.FeatureID)
+		// The website: one level, on any plan that doesn't include it.
+		if IsSite(id) {
+			o, err := siteOffer(p.ID, id)
+			if err != nil {
+				return Quote{}, err
+			}
+			if site != nil && site.ID != o.ID {
+				return Quote{}, fmt.Errorf("%w: un solo sitio por cuenta", ErrQty)
+			}
+			site = &o
+			continue
+		}
 		a, ok := byID[id]
 		if !ok {
 			return Quote{}, fmt.Errorf("%w: %q en %s", ErrNotOffered, id, p.ID)
@@ -373,8 +385,19 @@ func CalculateAddonPrice(planID string, selected []Selection) (Quote, error) {
 		q.Addons = append(q.Addons, line)
 		q.AddonsTotal += line.Price
 	}
+	// Moving up is compared without the site, which the next plan rarely includes.
+	q.UpgradeIsCheaper = q.NextPlan != "" && q.BasePrice+q.AddonsTotal >= q.NextPlanPrice
+	if site != nil {
+		label := site.Label
+		if site.Upgrade {
+			label += " (mejora)"
+		}
+		q.Addons = append(q.Addons, QuoteLine{FeatureID: site.FeatureID, Label: "Mantenimiento: " + label, Qty: 1, Price: site.Monthly})
+		q.AddonsTotal += site.Monthly
+		q.Setup = append(q.Setup, QuoteLine{FeatureID: site.FeatureID, Label: "Construcción: " + label, Qty: 1, Price: site.Setup})
+		q.SetupTotal = site.Setup
+	}
 	q.Total = q.BasePrice + q.AddonsTotal
-	q.UpgradeIsCheaper = q.NextPlan != "" && q.Total >= q.NextPlanPrice
 	return q, nil
 }
 
@@ -395,6 +418,11 @@ func Effective(planID string, addons []Selection) Capabilities {
 		n := sel.Qty
 		if n <= 0 {
 			n = 1
+		}
+		// The website (and the add-ons that sold it before it was a product).
+		if l, ok := siteByFeature(sel.FeatureID); ok {
+			l.applyTo(&c)
+			continue
 		}
 		// The add-on as priced on this plan's step; otherwise the step it
 		// was bought on (an add-on from below the plan changes nothing the

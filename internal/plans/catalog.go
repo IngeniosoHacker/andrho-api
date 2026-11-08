@@ -29,7 +29,8 @@ type Capabilities struct {
 	WhatsApp         string `json:"whatsapp"`
 	WhatsAppCommands int    `json:"whatsapp_commands"`
 	OwnNumber        bool   `json:"own_number"` // número de WhatsApp propio
-	// Sitio web y SEO, as flags (todo.md A4.6):
+	// Sitio web y SEO, as flags (todo.md A4.6). Only En órbita (tienda) and
+	// Galaxy (pro) include one; any other plan buys it (site.go):
 	//   Website  = sitio + SEO básico (robots, sitemap, canonical,
 	//              LocalBusiness, verificación de Search Console)
 	//   Store    = + tienda en línea (Product schema, sitemap de productos)
@@ -78,7 +79,7 @@ var catalog = []Plan{
 	{ID: "plataforma", Name: "Plataforma", Label: "Básico", Price: 349, Tagline: "Tus ventas y tus redes, en el mismo lugar.",
 		Caps: Capabilities{Branches: 1, Users: 2, Social: true, Support: "chat", Suggestions: 5, ModuleLimit: 2}},
 	{ID: "despegue", Name: "Despegue", Label: "En crecimiento", Price: 750, Tagline: "Lo esencial para dejar de decidir a ciegas.",
-		Caps: Capabilities{Branches: 3, Users: 6, Social: true, WhatsApp: "avisos", Website: true, CreatorTasks: 1, Support: "chat",
+		Caps: Capabilities{Branches: 3, Users: 6, Social: true, WhatsApp: "avisos", CreatorTasks: 1, Support: "chat",
 			Suggestions: 10, ModuleLimit: 3}},
 	{ID: "en_orbita", Name: "En órbita", Label: "Pro", Price: 1200, Tagline: "Para crecer con cada área conectada.",
 		Caps: Capabilities{Branches: 6, Users: 15, Social: true, WhatsApp: "control", WhatsAppCommands: 400, Website: true, Store: true,
@@ -197,11 +198,11 @@ func Includes(p Plan) []string {
 	}
 	switch c.SEOLevel() {
 	case "basico":
-		out = append(out, "Sitio web y SEO básico")
+		out = append(out, "Sitio web y SEO básico (construcción y mantenimiento)")
 	case "tienda":
-		out = append(out, "Sitio web con tienda en línea")
+		out = append(out, "Sitio web con tienda en línea (construcción y mantenimiento)")
 	case "completo":
-		out = append(out, "Sitio web y SEO completos")
+		out = append(out, "Sitio pro: tienda, páginas por sucursal y blog (construcción y mantenimiento)")
 	}
 	if c.CreatorTasks > 0 {
 		out = append(out, count(c.CreatorTasks, "tarea de Creators al mes", "tareas de Creators al mes"))

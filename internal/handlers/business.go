@@ -20,6 +20,7 @@ import (
 
 	"github.com/IngeniosoHacker/andrho-api/internal/business"
 	"github.com/IngeniosoHacker/andrho-api/internal/db"
+	"github.com/IngeniosoHacker/andrho-api/internal/plans"
 	"github.com/IngeniosoHacker/andrho-api/internal/insights"
 	"github.com/IngeniosoHacker/andrho-api/internal/provision"
 )
@@ -116,8 +117,11 @@ func (h *Handler) AccountSite(c *gin.Context) {
 	out := gin.H{"host": s.Host, "url": "https://" + s.PublicHost(), "subdomain": s.Subdomain, "status": s.Status,
 		"live_url": s.LiveURL, "custom_domain": s.CustomDomain, "seo": seo, "seo_level": caps.SEOLevel()}
 	if s.Status == db.SiteOffered {
-		out["offer"] = "Tu plan no incluye sitio web. Actívalo con el plan Despegue o con el complemento Sitio web básico; tu dirección " +
-			s.Host + " queda reservada."
+		out["offer"] = "Tu dirección " + s.Host + " queda reservada. Construir tu sitio se paga una vez y su mantenimiento se suma a tu plan (En órbita y Galaxy ya lo incluyen)."
+	}
+	// The levels this account can buy (or upgrade to), with their price on its plan.
+	if acc, err := db.GetAccountByID(ctx, h.Accounts, claims.AccountID); err == nil {
+		out["options"] = plans.SiteOptions(acc.Plan)
 	}
 	c.JSON(http.StatusOK, gin.H{"site": out})
 }

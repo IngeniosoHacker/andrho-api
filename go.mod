@@ -3,6 +3,7 @@ module github.com/IngeniosoHacker/andrho-api
 go 1.27.0
 
 require (
+	github.com/SherClockHolmes/webpush-go v1.4.0
 	github.com/extrame/xls v0.0.1
 	github.com/gin-gonic/gin v1.12.0
 	github.com/golang-jwt/jwt/v5 v5.3.1

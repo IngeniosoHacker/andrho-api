@@ -9,6 +9,7 @@ import (
 
 	"github.com/IngeniosoHacker/andrho-api/internal/ai"
 	"github.com/IngeniosoHacker/andrho-api/internal/brand"
+	"github.com/IngeniosoHacker/andrho-api/internal/plans"
 	"github.com/IngeniosoHacker/andrho-api/internal/recommend"
 )
 
@@ -192,6 +193,14 @@ func keep(field string, in []string) []string {
 	return out
 }
 
+// budgetID keeps a budget range of the catalog ("" otherwise).
+func budgetID(id string) string {
+	if _, ok := plans.GetBudget(id); ok {
+		return id
+	}
+	return ""
+}
+
 func one(field, v string) string {
 	if allowed[field][v] {
 		return v
@@ -253,6 +262,7 @@ func Sanitize(a recommend.Answers) recommend.Answers {
 	return recommend.Answers{
 		TeamSize:       team,
 		AccessUsers:    access,
+		Budget:         budgetID(a.Budget),
 		Sectors:        keep("sectors", a.Sectors),
 		CompanySize:    size,
 		SalesMethods:   keep("salesMethods", a.SalesMethods),

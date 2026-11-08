@@ -41,6 +41,9 @@ type Answers struct {
 	// many of them need AndRho (CompanySize is derived from TeamSize).
 	TeamSize    int `json:"teamSize,omitempty"`
 	AccessUsers int `json:"accessUsers,omitempty"`
+	// What it can put into software each month today (internal/plans
+	// Budgets id): feeds internal/afford.
+	Budget string `json:"budget,omitempty"`
 }
 
 // Result is what the survey shows (plan + reasons) and what gets stored with

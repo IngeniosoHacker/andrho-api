@@ -254,7 +254,7 @@ func (h *Handler) Register(c *gin.Context) {
 	if err == nil {
 		addons, _ := json.Marshal(boughtAddons(checkout.Quote))
 		err = db.SaveAccountPlan(ctx, h.Accounts, db.AccountPlan{AccountID: acc.ID, Plan: checkout.Quote.Plan, Addons: addons,
-			BasePrice: checkout.Quote.BasePrice, AddonsTotal: checkout.Quote.AddonsTotal, Total: checkout.Quote.Total,
+			BasePrice: checkout.Quote.BasePrice, AddonsTotal: checkout.Quote.AddonsTotal, Total: checkout.Quote.Total, SetupTotal: checkout.Quote.SetupTotal,
 			BillingStatus: checkout.Status, PaymentSkipped: checkout.Charge.Skipped, PaymentProvider: checkout.Charge.Provider,
 			PaymentRef: checkout.Charge.Reference})
 	}

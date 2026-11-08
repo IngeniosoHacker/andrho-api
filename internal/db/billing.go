@@ -19,6 +19,7 @@ type AccountPlan struct {
 	BasePrice       int             `json:"base_price"`
 	AddonsTotal     int             `json:"addons_total"`
 	Total           int             `json:"total"`
+	SetupTotal      int             `json:"setup_total"` // charged once (the website's construction)
 	Currency        string          `json:"currency"`
 	BillingStatus   string          `json:"billing_status"`
 	PaymentSkipped  bool            `json:"payment_skipped"`
@@ -29,12 +30,12 @@ type AccountPlan struct {
 }
 
 const accountPlanCols = `account_id, plan, addons, base_price, addons_total, total, currency, billing_status,
-  payment_skipped, payment_provider, payment_ref, created_at, updated_at`
+  payment_skipped, payment_provider, payment_ref, created_at, updated_at, setup_total`
 
 func scanAccountPlan(row pgx.Row) (AccountPlan, error) {
 	var p AccountPlan
 	err := row.Scan(&p.AccountID, &p.Plan, &p.Addons, &p.BasePrice, &p.AddonsTotal, &p.Total, &p.Currency, &p.BillingStatus,
-		&p.PaymentSkipped, &p.PaymentProvider, &p.PaymentRef, &p.CreatedAt, &p.UpdatedAt)
+		&p.PaymentSkipped, &p.PaymentProvider, &p.PaymentRef, &p.CreatedAt, &p.UpdatedAt, &p.SetupTotal)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return p, ErrNotFound
 	}
@@ -51,14 +52,15 @@ func SaveAccountPlan(ctx context.Context, pool *pgxpool.Pool, p AccountPlan) err
 	}
 	_, err := pool.Exec(ctx,
 		`INSERT INTO account_plan (account_id, plan, addons, base_price, addons_total, total, currency, billing_status,
-		   payment_skipped, payment_provider, payment_ref)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		   payment_skipped, payment_provider, payment_ref, setup_total)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		 ON CONFLICT (account_id) DO UPDATE SET plan = EXCLUDED.plan, addons = EXCLUDED.addons, base_price = EXCLUDED.base_price,
 		   addons_total = EXCLUDED.addons_total, total = EXCLUDED.total, currency = EXCLUDED.currency,
 		   billing_status = EXCLUDED.billing_status, payment_skipped = EXCLUDED.payment_skipped,
-		   payment_provider = EXCLUDED.payment_provider, payment_ref = EXCLUDED.payment_ref, updated_at = now()`,
+		   payment_provider = EXCLUDED.payment_provider, payment_ref = EXCLUDED.payment_ref,
+		   setup_total = EXCLUDED.setup_total, updated_at = now()`,
 		p.AccountID, p.Plan, p.Addons, p.BasePrice, p.AddonsTotal, p.Total, p.Currency, p.BillingStatus,
-		p.PaymentSkipped, p.PaymentProvider, p.PaymentRef)
+		p.PaymentSkipped, p.PaymentProvider, p.PaymentRef, p.SetupTotal)
 	if err != nil {
 		return fmt.Errorf("db: save account plan: %w", err)
 	}

@@ -48,6 +48,19 @@ type Result struct {
 	// modules its profile added after the analysis' own picks.
 	BusinessType string   `json:"business_type,omitempty"`
 	TypeModules  []string `json:"type_modules,omitempty"`
+	// Affordability (internal/afford, set by the handler): which plans the
+	// business can likely sustain. When it can't sustain the complete one,
+	// Recommended moves to the biggest it can and AffordReason says so.
+	Affordability any    `json:"affordability,omitempty"`
+	AffordReason  string `json:"afford_reason,omitempty"`
+}
+
+// Recommend marks key as the package AndRho puts forward.
+func (r *Result) Recommend(key string) {
+	r.Recommended = key
+	for i := range r.Packages {
+		r.Packages[i].Recommended = r.Packages[i].Key == key
+	}
 }
 
 // withType appends the modules businesses of this type use that the

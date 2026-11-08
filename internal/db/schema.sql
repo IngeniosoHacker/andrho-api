@@ -429,6 +429,8 @@ CREATE TABLE IF NOT EXISTS account_plan (
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_account_plan_skipped ON account_plan (payment_skipped) WHERE payment_skipped;
+-- What's charged once (the website's construction, internal/plans site.go).
+ALTER TABLE account_plan ADD COLUMN IF NOT EXISTS setup_total INTEGER NOT NULL DEFAULT 0;
 
 -- Sites on the wildcard (todo.md Parte A): each client's site is its own
 -- Railway service (site-<account_id>) in the Clients project, reached
@@ -464,3 +466,17 @@ CREATE TABLE IF NOT EXISTS site_seo (
   branches    JSONB NOT NULL DEFAULT '[]',
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Browsers that asked AndRho to tell them when something is ready (Web
+-- Push, internal/notify): the ERP after signup, for now.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  endpoint   TEXT PRIMARY KEY,
+  user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  p256dh     TEXT NOT NULL,
+  auth       TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_account ON push_subscriptions (account_id);

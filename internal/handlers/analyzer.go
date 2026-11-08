@@ -1,13 +1,16 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/IngeniosoHacker/andrho-api/internal/afford"
 	"github.com/IngeniosoHacker/andrho-api/internal/analyzer"
+	"github.com/IngeniosoHacker/andrho-api/internal/plans"
 	"github.com/IngeniosoHacker/andrho-api/internal/recommend"
 )
 
@@ -79,5 +82,26 @@ func (h *Handler) Suggest(c *gin.Context) {
 	}
 	in := analyzer.SuggestInput{Answers: req.Answers, Details: req.Details, Description: strings.TrimSpace(req.Description)}
 	in.Brand.Choice, in.Brand.Essence = req.Brand.Choice, strings.TrimSpace(req.Brand.Essence)
-	c.JSON(http.StatusOK, analyzer.Suggest(c.Request.Context(), h.AI, in))
+	res := analyzer.Suggest(c.Request.Context(), h.AI, in)
+	h.withAffordability(c.Request.Context(), &res, req.Answers)
+	c.JSON(http.StatusOK, res)
+}
+
+// withAffordability recommends the biggest package the business can likely
+// sustain (internal/afford, R on the VPS) instead of always the complete one.
+func (h *Handler) withAffordability(ctx context.Context, res *analyzer.Result, raw recommend.Answers) {
+	a := analyzer.Sanitize(raw)
+	wantsSite := false
+	for _, m := range res.Needs {
+		if m.Key == "sitio_web" {
+			wantsSite = true
+		}
+	}
+	r := afford.Assess(ctx, h.Stats, afford.Input{TeamSize: a.TeamSize, CompanySize: a.CompanySize, AccessUsers: a.AccessUsers,
+		Sectors: a.Sectors, Budget: a.Budget, WantsSite: wantsSite})
+	res.Affordability = r
+	if plans.Rank(r.Recommended) < plans.Rank(res.Recommended) {
+		res.AffordReason = afford.Reason(r, res.Recommended)
+		res.Recommend(r.Recommended)
+	}
 }

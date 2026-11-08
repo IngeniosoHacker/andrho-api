@@ -13,6 +13,7 @@ import (
 	"github.com/IngeniosoHacker/andrho-api/internal/billing"
 	"github.com/IngeniosoHacker/andrho-api/internal/config"
 	"github.com/IngeniosoHacker/andrho-api/internal/db"
+	"github.com/IngeniosoHacker/andrho-api/internal/notify"
 	"github.com/IngeniosoHacker/andrho-api/internal/provision"
 	"github.com/IngeniosoHacker/andrho-api/internal/rstats"
 	"github.com/IngeniosoHacker/andrho-api/internal/secret"
@@ -33,6 +34,8 @@ type Handler struct {
 	// Payments charges the checkout (internal/billing); a no-op that
 	// approves everything while PAYMENTS_ENABLED=false.
 	Payments billing.PaymentProvider
+	// Notify tells people when their ERP is ready (email + Web Push).
+	Notify *notify.Notifier
 }
 
 // New builds a Handler. AI calls record their tokens in token_usage. A bad
@@ -51,8 +54,9 @@ func New(accounts, tracker *pgxpool.Pool, rdb *redis.Client, cfg *config.Config)
 	h.Secrets = box
 	h.Payments = billing.FromEnv()
 	h.Stats = &rstats.Client{VPS: runner} // R for the Web insights, on the VPS
+	h.Notify = notify.FromEnv(accounts, cfg.DashboardURL)
 	h.Provision = &provision.Provisioner{DB: accounts, VPS: runner, Secrets: box, DBMode: cfg.OdooDBMode, DashboardURL: cfg.DashboardURL,
-		Sites: sites.FromEnv()}
+		Sites: sites.FromEnv(), Notify: h.Notify}
 	h.AI = ai.New(cfg.AnthropicAPIKey, cfg.AnthropicModel, func(ctx context.Context, u ai.Usage) {
 		// Detached: the request's context may be gone by the time we write.
 		err := db.RecordTokenUsage(context.WithoutCancel(ctx), accounts, db.TokenUsage{

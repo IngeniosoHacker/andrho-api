@@ -5,7 +5,8 @@ import (
 	"testing"
 )
 
-// Every row of the table in todo.md C3: step, feature, weight and price.
+// Every row of the table in todo.md C3: step, feature, weight and price
+// (the website rows left the table for site.go; their weight is Reserved).
 func TestAddonTableMatchesC3(t *testing.T) {
 	want := []struct {
 		from, feature string
@@ -18,18 +19,15 @@ func TestAddonTableMatchesC3(t *testing.T) {
 		{"plataforma", "sucursal_extra", 1, 50},
 		{"plataforma", "usuario_extra", 0.5, 25},
 		{"plataforma", "whatsapp_avisos", 2, 100},
-		{"plataforma", "sitio_web_basico", 4, 200},
 		{"plataforma", "creator_task", 3, 150},
 		{"despegue", "sucursal_extra", 0.5, 30},
 		{"despegue", "usuario_extra", 0.25, 15},
 		{"despegue", "whatsapp_control", 3, 160},
-		{"despegue", "tienda_en_linea", 4, 210},
 		{"despegue", "creator_task", 2.5, 130},
 		{"despegue", "soporte_vivo", 1, 55},
 		{"en_orbita", "sucursales_ilimitadas", 2, 295},
 		{"en_orbita", "usuarios_ilimitados", 2, 295},
 		{"en_orbita", "whatsapp_propio", 4, 585},
-		{"en_orbita", "sitio_completo", 3, 440},
 		{"en_orbita", "creator_task", 4, 585},
 		{"en_orbita", "soporte_vivo", 1, 150},
 	}
@@ -75,7 +73,7 @@ func TestCatalogC1(t *testing.T) {
 		t.Fatal("normalize")
 	}
 	if MustGet("galaxy").Caps.SEOLevel() != "completo" || MustGet("en_orbita").Caps.SEOLevel() != "tienda" ||
-		MustGet("despegue").Caps.SEOLevel() != "basico" || MustGet("plataforma").Caps.SEOLevel() != "" {
+		MustGet("despegue").Caps.SEOLevel() != "" || MustGet("plataforma").Caps.SEOLevel() != "" {
 		t.Fatal("seo levels")
 	}
 }
@@ -88,11 +86,11 @@ func TestAddonPriceRounding(t *testing.T) {
 }
 
 func TestCalculateAddonPrice(t *testing.T) {
-	q, err := CalculateAddonPrice("plataforma", []Selection{{FeatureID: "sitio_web_basico"}, {FeatureID: "usuario_extra", Qty: 2}})
+	q, err := CalculateAddonPrice("plataforma", []Selection{{FeatureID: "whatsapp_avisos"}, {FeatureID: "usuario_extra", Qty: 2}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if q.BasePrice != 349 || q.AddonsTotal != 250 || q.Total != 599 || q.NextPlan != "despegue" || q.NextPlanPrice != 750 || q.UpgradeIsCheaper {
+	if q.BasePrice != 349 || q.AddonsTotal != 150 || q.Total != 499 || q.NextPlan != "despegue" || q.NextPlanPrice != 750 || q.UpgradeIsCheaper || q.SetupTotal != 0 {
 		t.Fatalf("%+v", q)
 	}
 	if len(q.Addons) != 2 || q.Addons[1].FeatureID != "usuario_extra" || q.Addons[1].Qty != 2 || q.Addons[1].Price != 50 {
@@ -107,15 +105,20 @@ func TestCalculateAddonPrice(t *testing.T) {
 }
 
 func TestUpgradeIsCheaperBothWays(t *testing.T) {
-	// Despegue + WhatsApp control + tienda + Creator = 750+160+210+130 = 1250 ≥ 1200.
-	q, err := CalculateAddonPrice("despegue", []Selection{{FeatureID: "whatsapp_control"}, {FeatureID: "tienda_en_linea"}, {FeatureID: "creator_task"}})
-	if err != nil || q.Total != 1250 || !q.UpgradeIsCheaper {
+	// Despegue + WhatsApp control + Creator + soporte = 750+160+130+55 = 1095 < 1200.
+	q, err := CalculateAddonPrice("despegue", []Selection{{FeatureID: "whatsapp_control"}, {FeatureID: "creator_task"}, {FeatureID: "soporte_vivo"}})
+	if err != nil || q.Total != 1095 || q.UpgradeIsCheaper {
 		t.Fatalf("%+v %v", q, err)
 	}
-	// Just the store: 960 < 1200.
-	q, _ = CalculateAddonPrice("despegue", []Selection{{FeatureID: "tienda_en_linea"}})
-	if q.Total != 960 || q.UpgradeIsCheaper {
+	// + 9 users (135) = 1230 ≥ 1200.
+	q, _ = CalculateAddonPrice("despegue", []Selection{{FeatureID: "whatsapp_control"}, {FeatureID: "creator_task"}, {FeatureID: "soporte_vivo"}, {FeatureID: "usuario_extra", Qty: 9}})
+	if q.Total != 1230 || !q.UpgradeIsCheaper {
 		t.Fatalf("%+v", q)
+	}
+	// The site's upkeep doesn't make moving up "cheaper": En órbita includes it, but it isn't a step add-on.
+	q, _ = CalculateAddonPrice("despegue", []Selection{{FeatureID: "whatsapp_control"}, {FeatureID: "sitio_pro"}})
+	if q.UpgradeIsCheaper || q.Total != 750+160+400 {
+		t.Fatalf("site %+v", q)
 	}
 	// Exactly the next price counts as cheaper (>=): base + all three = 120+300 = 420 ≥ 349.
 	q, _ = CalculateAddonPrice("base", []Selection{{FeatureID: "usuario_extra"}, {FeatureID: "facebook_instagram"}, {FeatureID: "soporte_chat"}})
@@ -156,8 +159,8 @@ func TestQuantityCaps(t *testing.T) {
 }
 
 func TestOnlyNextPlanAddons(t *testing.T) {
-	// The store is two plans above Plataforma.
-	if _, err := CalculateAddonPrice("plataforma", []Selection{{FeatureID: "tienda_en_linea"}}); !errors.Is(err, ErrNotOffered) {
+	// WhatsApp control is two plans above Plataforma.
+	if _, err := CalculateAddonPrice("plataforma", []Selection{{FeatureID: "whatsapp_control"}}); !errors.Is(err, ErrNotOffered) {
 		t.Fatalf("got %v", err)
 	}
 	if _, err := CalculateAddonPrice("nada", nil); !errors.Is(err, ErrUnknownPlan) {
@@ -188,19 +191,17 @@ func TestGalaxyHasNoNextPlan(t *testing.T) {
 func TestDependencies(t *testing.T) {
 	_, feats, _ := NextPlanFeatures("despegue", nil)
 	for _, f := range feats {
-		if f.FeatureID == "tienda_en_linea" && (!f.Selectable || len(f.Requires) != 1 || !f.Requires[0].Met) {
-			t.Fatalf("store on despegue: %+v", f)
+		if f.FeatureID == "whatsapp_control" && (!f.Selectable || len(f.Requires) != 1 || !f.Requires[0].Met) {
+			t.Fatalf("control on despegue: %+v", f)
 		}
 	}
-	// A plan without a site (the same step, as if Despegue lacked one).
 	saved := catalog[index["despegue"]].Caps
 	defer func() { catalog[index["despegue"]].Caps = saved }()
-	catalog[index["despegue"]].Caps.Website = false
 	catalog[index["despegue"]].Caps.WhatsApp = ""
 	_, feats, _ = NextPlanFeatures("despegue", nil)
 	for _, f := range feats {
 		switch f.FeatureID {
-		case "tienda_en_linea", "whatsapp_control":
+		case "whatsapp_control":
 			if f.Selectable || f.Requires[0].Met || f.Requires[0].Label == "" {
 				t.Errorf("%s: %+v", f.FeatureID, f)
 			}
@@ -210,33 +211,33 @@ func TestDependencies(t *testing.T) {
 			}
 		}
 	}
-	if _, err := CalculateAddonPrice("despegue", []Selection{{FeatureID: "tienda_en_linea"}}); !errors.Is(err, ErrMissingRequire) {
+	if _, err := CalculateAddonPrice("despegue", []Selection{{FeatureID: "whatsapp_control"}}); !errors.Is(err, ErrMissingRequire) {
 		t.Fatalf("got %v", err)
 	}
 }
 
 func TestNextPlanFeaturesOnlyDifferencesNeededFirst(t *testing.T) {
-	next, feats, err := NextPlanFeatures("plataforma", []string{"analitica", "whatsapp", "sitio_web"})
+	next, feats, err := NextPlanFeatures("plataforma", []string{"analitica", "whatsapp", "creators"})
 	if err != nil || next == nil || next.ID != "despegue" {
 		t.Fatalf("%v %v", next, err)
 	}
-	if len(feats) != 5 {
+	if len(feats) != 4 {
 		t.Fatalf("got %d features", len(feats))
 	}
-	if feats[0].FeatureID != "whatsapp_avisos" || feats[1].FeatureID != "sitio_web_basico" || !feats[0].Needed || feats[2].Needed {
+	if feats[0].FeatureID != "whatsapp_avisos" || feats[1].FeatureID != "creator_task" || !feats[0].Needed || !feats[1].Needed || feats[2].Needed {
 		t.Fatalf("order: %s %s %s", feats[0].FeatureID, feats[1].FeatureID, feats[2].FeatureID)
 	}
 	// The rest keep the table's order.
-	if feats[2].FeatureID != "sucursal_extra" || feats[4].FeatureID != "creator_task" {
+	if feats[2].FeatureID != "sucursal_extra" || feats[3].FeatureID != "usuario_extra" {
 		t.Fatalf("rest: %+v", feats)
 	}
-	if feats[1].Addon == nil || feats[1].Addon.Price != 200 || feats[2].Addon.MaxQty != 2 || !feats[2].Addon.PerUnit {
-		t.Fatalf("addon %+v %+v", feats[1].Addon, feats[2].Addon)
+	if feats[0].Addon == nil || feats[0].Addon.Price != 100 || feats[2].Addon.MaxQty != 2 || !feats[2].Addon.PerUnit {
+		t.Fatalf("addon %+v %+v", feats[0].Addon, feats[2].Addon)
 	}
 }
 
 func TestEffective(t *testing.T) {
-	c := Effective("plataforma", []Selection{{FeatureID: "sitio_web_basico"}, {FeatureID: "creator_task"}, {FeatureID: "usuario_extra", Qty: 3}})
+	c := Effective("plataforma", []Selection{{FeatureID: "sitio_basico"}, {FeatureID: "creator_task"}, {FeatureID: "usuario_extra", Qty: 3}})
 	if !c.Website || c.CreatorTasks != 1 || c.Users != 5 {
 		t.Fatalf("%+v", c)
 	}

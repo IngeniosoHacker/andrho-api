@@ -62,6 +62,8 @@ func New(h *handlers.Handler) *gin.Engine {
 	// Public: the plan catalog (internal/plans) and, after picking a plan,
 	// what the next one adds and the price with add-ons.
 	r.GET("/plans", h.ListPlans)
+	// Web Push: the public key for the browser to subscribe with.
+	r.GET("/push/key", h.PushKey)
 	r.POST("/plans/quote", middleware.AnalyzerRateLimit(h.Redis), h.Quote)
 
 	// Public: the development progress shown on andrho's landing -- commits
@@ -80,6 +82,7 @@ func New(h *handlers.Handler) *gin.Engine {
 		accountGroup.DELETE("/users/:id", middleware.RequireRole("admin"), h.RemoveUser)
 		accountGroup.GET("/plan", h.GetPlan)
 		accountGroup.PATCH("/plan", middleware.RequireRole("owner"), h.UpdatePlan)
+		accountGroup.POST("/site/buy", middleware.RequireRole("owner"), h.BuySite)
 		accountGroup.GET("/events", h.ListEvents)
 		accountGroup.GET("/provisioning", h.AccountProvisioning)
 		accountGroup.GET("/presence", h.TeamPresence)
@@ -93,6 +96,8 @@ func New(h *handlers.Handler) *gin.Engine {
 		accountGroup.PUT("/site/seo", middleware.RequireRole("admin"), h.SetSiteSEO)
 		accountGroup.GET("/logo", h.AccountLogo)
 		// Logo, brand images and data (signup and "Subir después").
+		accountGroup.POST("/push", h.SubscribePush)
+		accountGroup.DELETE("/push", h.UnsubscribePush)
 		accountGroup.GET("/assets", h.ListAssets)
 		accountGroup.POST("/assets", middleware.RequireRole("editor"), h.UploadAsset)
 		accountGroup.GET("/assets/:id/file", h.AssetFile)

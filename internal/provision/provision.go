@@ -41,6 +41,7 @@ import (
 	"github.com/IngeniosoHacker/andrho-api/internal/business"
 	"github.com/IngeniosoHacker/andrho-api/internal/db"
 	"github.com/IngeniosoHacker/andrho-api/internal/matching"
+	"github.com/IngeniosoHacker/andrho-api/internal/notify"
 	"github.com/IngeniosoHacker/andrho-api/internal/plans"
 	"github.com/IngeniosoHacker/andrho-api/internal/secret"
 	"github.com/IngeniosoHacker/andrho-api/internal/sites"
@@ -143,6 +144,8 @@ type Provisioner struct {
 	// Sites is the AndRho websites setup (client services in the Railway
 	// Clients project, behind sites-router).
 	Sites sites.Config
+	// Notify tells the account when its ERP is ready (nil: nobody).
+	Notify *notify.Notifier
 }
 
 // Statuses.
@@ -302,7 +305,9 @@ func (p *Provisioner) Run(ctx context.Context, acc Account, j db.ProvisioningJob
 		}
 		_ = db.SetJobProgress(ctx, p.DB, j.ID, 100, "Tu ERP está listo.")
 		set(StatusDone, "Tu ERP está listo.", map[string]string{"url": res.URL, "db": res.DB, "login": res.Login}, true)
-		// The data the business uploaded at signup goes in now (kit.go).
+		// Tell them (they may have closed the signup), then load the data
+		// they uploaded at signup (kit.go).
+		p.Notify.ERPReady(ctx, acc.ID, acc.Company, acc.OwnerEmail, acc.OwnerName)
 		p.MigrateData(ctx, acc)
 
 	case "whatsapp":
