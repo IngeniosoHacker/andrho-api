@@ -71,5 +71,6 @@ func (h *Handler) Me(c *gin.Context) {
 		Plan:         acc.Plan,
 		StaffRole:    staffRole,
 		BusinessType: businessType,
+		Features:     h.accountFeatures(ctx, acc.ID),
 	})
 }

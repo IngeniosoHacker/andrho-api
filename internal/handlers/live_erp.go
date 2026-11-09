@@ -186,6 +186,7 @@ var liveParams = map[string]string{
 	"loyalty_enabled":  "andrho.live.loyalty_enabled",
 	"loyalty_min":      "andrho.live.loyalty_min_purchases",
 	"loyalty_discount": "andrho.live.loyalty_discount",
+	"claim_word":       "andrho.live.claim_word",
 }
 
 func erpGetParam(ctx context.Context, cl *odoo.Client, key string) (string, error) {

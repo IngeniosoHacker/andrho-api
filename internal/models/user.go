@@ -57,4 +57,7 @@ type MeResponse struct {
 	StaffRole   string `json:"staff_role,omitempty"` // AndRho's own team: admin | creator
 	// BusinessType: servicios | restaurantes | ventas | "" (internal/business).
 	BusinessType string `json:"business_type"`
+	// Features: what the account can see (plan + use), e.g.
+	// {"live_sale": {"available": true, "enabled": true}}.
+	Features any `json:"features"`
 }

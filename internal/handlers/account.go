@@ -107,6 +107,8 @@ func (h *Handler) UpdatePlan(c *gin.Context) {
 	h.activateOfferedSite(ctx, claims.AccountID)
 
 	_ = db.LogEvent(ctx, h.Accounts, uuid.NewString(), claims.AccountID, &claims.Sub, "plan_changed", "Plan cambiado a "+req.Plan)
+	// A plan without live sales hides them in the ERP too (and back).
+	h.syncLiveERP(claims.AccountID)
 
 	resp, err := h.planResponseFor(c, claims.AccountID, req.Plan)
 	if err != nil {

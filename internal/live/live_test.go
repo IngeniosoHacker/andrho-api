@@ -102,7 +102,16 @@ func TestMessages(t *testing.T) {
 	if a, z := Address("Col. El Milagro, Mixco"); a != "Col. El Milagro" || z != "Mixco" {
 		t.Fatalf("%q %q", a, z)
 	}
-	if c := PostCaption(85, "", true); c != "Q85\nAplica descuento para clientes frecuentes.\n\nComenta «Mío» si lo quieres. La primera persona en comentar se lo lleva y le escribimos por Messenger para confirmar." {
+	if !IsClaim("¡YO LO QUIERO!", "yo lo quiero") || IsClaim("mío", "lo quiero") || !IsClaim("Mio", "") {
+		t.Fatal("IsClaim")
+	}
+	if !ValidClaimWord("Lo quiero") || ValidClaimWord("😍") || ValidClaimWord("a b c d") || ValidClaimWord("una palabra muy larga de verdad") {
+		t.Fatal("ValidClaimWord")
+	}
+	if c := PostCaption(85, "", false, "apartado"); c != "Q85\n\nComenta «Apartado» si lo quieres. La primera persona en comentar se lo lleva y le escribimos por Messenger para confirmar." {
+		t.Fatal(c)
+	}
+	if c := PostCaption(85, "", true, ""); c != "Q85\nAplica descuento para clientes frecuentes.\n\nComenta «Mío» si lo quieres. La primera persona en comentar se lo lleva y le escribimos por Messenger para confirmar." {
 		t.Fatal(c)
 	}
 }

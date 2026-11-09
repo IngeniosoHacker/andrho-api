@@ -45,6 +45,7 @@ type fakeGraph struct {
 	posts    int
 	deleted  []string
 	prefix   string // per run, so post ids don't collide across runs
+	captions []string
 }
 
 func (f *fakeGraph) handler(w http.ResponseWriter, r *http.Request) {
@@ -64,6 +65,8 @@ func (f *fakeGraph) handler(w http.ResponseWriter, r *http.Request) {
 	case strings.HasSuffix(r.URL.Path, "/LIVE1"):
 		w.Write([]byte(`{"id":"LIVE1","status":"LIVE"}`))
 	case strings.HasSuffix(r.URL.Path, "/photos"):
+		_ = r.ParseMultipartForm(1 << 20)
+		f.captions = append(f.captions, r.FormValue("caption"))
 		f.posts++
 		w.Write([]byte(`{"id":"PH","post_id":"PAGE1_` + f.prefix + `POST` + string(rune('0'+f.posts)) + `"}`))
 	case r.Method == http.MethodDelete:
@@ -158,8 +161,15 @@ func TestLiveEndToEnd(t *testing.T) {
 		pids = append(pids, id)
 	}
 
-	router := gin_test_router(h)
 	token, _ := auth.IssueAccessToken(cfg.JWTSecret, uuid.NewString(), accountID, "ana@t.dev", "s", "Tienda Ana", "owner", time.Hour)
+	router := gin_test_router(h)
+	status := func(method, path string) int {
+		req := httptest.NewRequest(method, path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec.Code
+	}
 	call := func(method, path string, body any) map[string]any {
 		var rd io.Reader
 		if body != nil {
@@ -179,9 +189,25 @@ func TestLiveEndToEnd(t *testing.T) {
 		return out
 	}
 
+	// Plataforma includes live sales, but this business isn't en_vivo and
+	// never turned it on: it's hidden and every /live/* route says so.
 	st := call("GET", "/live/status", nil)
-	if st["plan_allows"] != true || st["erp"] != "ready" {
+	if st["plan_allows"] != true || st["enabled"] != false {
+		t.Fatalf("status before enabling %v", st)
+	}
+	if code := status("GET", "/live/sessions"); code != http.StatusForbidden {
+		t.Fatalf("sessions while off: %d", code)
+	}
+	if err := db.SetFeature(ctx, pool, accountID, "live_sale", true); err != nil {
+		t.Fatal(err)
+	}
+	st = call("GET", "/live/status", nil)
+	if st["enabled"] != true || st["erp"] != "ready" {
 		t.Fatalf("status %v", st)
+	}
+	// The seller's word for the posts: "Apartado" instead of "mío".
+	if set := call("PUT", "/live/settings", map[string]string{"claim_word": "Apartado"}); set["claim_word"] != "Apartado" {
+		t.Fatalf("claim word %v", set)
 	}
 	created := call("POST", "/live/sessions", map[string]any{"name": "Live de prueba", "items": []map[string]any{
 		{"product_id": pids[0]}, {"product_id": pids[1]}, {"product_id": pids[2], "price": 180}}})
@@ -273,9 +299,12 @@ func TestLiveEndToEnd(t *testing.T) {
 	if pub["posted"].(float64) != 2 {
 		t.Fatalf("publish %v (products have no photo?)", pub)
 	}
+	if !strings.Contains(graph.captions[0], "Comenta «Apartado»") {
+		t.Fatalf("caption %q", graph.captions[0])
+	}
 	wh := map[string]any{"object": "page", "entry": []any{map[string]any{"id": "PAGE1", "changes": []any{
-		map[string]any{"field": "feed", "value": map[string]any{"item": "comment", "verb": "add", "post_id": post1, "comment_id": cid("pc1"), "message": "lo quiero", "from": map[string]any{"id": cid("U5"), "name": "Eva"}}},
-		map[string]any{"field": "feed", "value": map[string]any{"item": "comment", "verb": "add", "post_id": post1, "comment_id": cid("pc2"), "message": "Mío 🙋", "from": map[string]any{"id": cid("U4"), "name": "Rosa"}}},
+		map[string]any{"field": "feed", "value": map[string]any{"item": "comment", "verb": "add", "post_id": post1, "comment_id": cid("pc1"), "message": "Mío", "from": map[string]any{"id": cid("U5"), "name": "Eva"}}},
+		map[string]any{"field": "feed", "value": map[string]any{"item": "comment", "verb": "add", "post_id": post1, "comment_id": cid("pc2"), "message": "¡APARTADO! 🙋", "from": map[string]any{"id": cid("U4"), "name": "Rosa"}}},
 	}}}}
 	raw, _ := json.Marshal(wh)
 	mac := hmac.New(sha256.New, []byte("appsecret"))
@@ -299,7 +328,7 @@ func TestLiveEndToEnd(t *testing.T) {
 		t.Fatal("rosa's mío wasn't asked")
 	}
 	if _, err := claimByComment(ctx, pool, cid("pc1")); err == nil {
-		t.Fatal("'lo quiero' must be ignored on posts")
+		t.Fatal("'Mío' must be ignored once the word is 'Apartado'")
 	}
 	h.livePostback(ctx, page, "PSID-ROSA", "LS_YES:"+itoa(rosa.ID))
 	graph.mu.Lock()
@@ -312,7 +341,7 @@ func TestLiveEndToEnd(t *testing.T) {
 	if m["lives"].(float64) < 1 || m["sold"].(float64) < 2 {
 		t.Fatalf("metrics %v", m)
 	}
-	set := call("PUT", "/live/settings", map[string]string{"card_message": "¡Gracias {nombre}, vuelve pronto!", "loyalty_enabled": "1"})
+	set := call("PUT", "/live/settings", map[string]string{"card_message": "¡Gracias {nombre}, vuelve pronto!", "loyalty_enabled": "1", "claim_word": "mío"})
 	if set["loyalty_enabled"] != "1" {
 		t.Fatalf("settings %v", set)
 	}
@@ -336,6 +365,7 @@ func gin_test_router(h *Handler) *gin.Engine {
 	auth := middleware.RequireAuth(h.Cfg.JWTSecret)
 	g := r.Group("/live", auth)
 	g.GET("/status", h.LiveStatus)
+	g.GET("/sessions", h.LiveList)
 	g.POST("/sessions", h.LiveCreate)
 	g.GET("/sessions/:id", h.LiveGet)
 	g.POST("/sessions/:id/start", h.LiveStart)

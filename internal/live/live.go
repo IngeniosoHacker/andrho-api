@@ -49,10 +49,31 @@ func Normalize(s string) string {
 	return b.String()
 }
 
-// IsMio says whether a comment on an unsold-item post claims it: only
-// "mio" or "mío", in any case, with nothing else but punctuation or emoji.
-func IsMio(comment string) bool {
-	return Normalize(comment) == "mio"
+// DefaultClaimWord is what buyers comment on an unsold-item post to take
+// it, unless the seller picks another word (Ajustes).
+const DefaultClaimWord = "mío"
+
+// IsClaim says whether a comment on an unsold-item post claims it: only the
+// seller's word ("mío" by default), in any case and with or without
+// accents, with nothing else but punctuation or emoji.
+func IsClaim(comment, word string) bool {
+	w := Normalize(word)
+	if w == "" {
+		w = Normalize(DefaultClaimWord)
+	}
+	return Normalize(comment) == w
+}
+
+// IsMio is IsClaim with the default word.
+func IsMio(comment string) bool { return IsClaim(comment, DefaultClaimWord) }
+
+// ValidClaimWord checks a seller's word: one to three words, letters and
+// numbers only (emoji and punctuation are dropped when reading comments, so
+// they can't be the word), up to 20 characters.
+func ValidClaimWord(word string) bool {
+	word = strings.TrimSpace(word)
+	n := Normalize(word)
+	return n != "" && len([]rune(word)) <= 20 && len(strings.Fields(n)) <= 3
 }
 
 // Item is one product of a live, as the logic needs it.
@@ -300,7 +321,13 @@ func Address(text string) (address, zone string) {
 // PostCaption is the text of an unsold item's post: price, the optional
 // frequent-buyer note and how to buy. No product name, on purpose: the
 // photo speaks, and "mío" is the only word that counts.
-func PostCaption(price float64, description string, loyalty bool) string {
+func PostCaption(price float64, description string, loyalty bool, word string) string {
+	word = strings.TrimSpace(word)
+	if word == "" {
+		word = DefaultClaimWord
+	}
+	r := []rune(word)
+	r[0] = unicode.ToUpper(r[0])
 	var b strings.Builder
 	b.WriteString(Money(price))
 	if d := strings.TrimSpace(description); d != "" {
@@ -309,6 +336,6 @@ func PostCaption(price float64, description string, loyalty bool) string {
 	if loyalty {
 		b.WriteString("\nAplica descuento para clientes frecuentes.")
 	}
-	b.WriteString("\n\nComenta «Mío» si lo quieres. La primera persona en comentar se lo lleva y le escribimos por Messenger para confirmar.")
+	b.WriteString("\n\nComenta «" + string(r) + "» si lo quieres. La primera persona en comentar se lo lleva y le escribimos por Messenger para confirmar.")
 	return b.String()
 }

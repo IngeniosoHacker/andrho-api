@@ -419,6 +419,15 @@ rules (`internal/live`):
   `GET|PUT /live/settings` (card message and logo, loyalty), `GET /live/metrics`.
 - `POST /meta/webhook` checks `X-Hub-Signature-256` with `META_APP_SECRET`;
   `GET /meta/webhook` answers Meta's check with `META_VERIFY_TOKEN`.
+- Features by account: live sales are *available* with the plan's
+  `live_sale` and *enabled* when the owner turns them on
+  (`PUT /account/features/live_sale {enabled}`, `account_features`) or, if
+  they never chose, for business type `en_vivo`. `GET /auth/me` carries
+  `features`; `/live/*` answer 403 `feature_off` while off; plan, type and
+  feature changes show or hide it in the ERP (`andrho_set_enabled`: the
+  module's group, implied from internal users).
+- The word buyers comment on posts is a setting (`claim_word`, "mío" by
+  default), compared without case or accents.
 - `GET /erp/locate?q=` is the dashboard's search bar (`internal/locate`):
   synonyms in Spanish ("productos" → Inventario › Productos, "en vivo" → the
   lives); `POST /erp/sso {next}` opens the ERP right there.

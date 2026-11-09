@@ -81,6 +81,7 @@ func (h *Handler) SetBusinessType(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "internal error")
 		return
 	}
+	h.syncLiveERP(claims.AccountID) // en_vivo turns live sales on by default
 	_ = db.LogEvent(ctx, h.Accounts, uuid.NewString(), claims.AccountID, &claims.Sub, "business_type_changed",
 		"Tipo de negocio: "+map[bool]string{true: p.Name, false: "sin tipo"}[ok])
 

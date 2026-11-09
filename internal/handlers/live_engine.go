@@ -118,12 +118,17 @@ func (h *Handler) liveComment(ctx context.Context, cl *odoo.Client, sess db.Live
 
 // postComment handles a comment on an unsold item's post: only "mío".
 func (h *Handler) postComment(ctx context.Context, page pageCtx, post db.LivePost, v meta.ChangeValue) {
-	if post.State != "open" || v.From.ID == page.PageID || !live.IsMio(v.Message) {
+	if post.State != "open" || v.From.ID == page.PageID {
 		return
 	}
 	cl, err := h.odooFor(ctx, post.AccountID)
 	if err != nil {
 		log.Printf("live: post %s: erp: %v", post.PostID, err)
+		return
+	}
+	// The seller's word ("mío" unless they picked another one).
+	word, _ := erpGetParam(ctx, cl, liveParams["claim_word"])
+	if !live.IsClaim(v.Message, word) {
 		return
 	}
 	at := time.Now()

@@ -37,13 +37,17 @@ func (h *Handler) liveGate(c *gin.Context) (accountID, userID string, ok bool) {
 		respondError(c, http.StatusUnauthorized, "missing authorization")
 		return "", "", false
 	}
-	caps, err := h.accountCaps(c.Request.Context(), claims.AccountID)
+	st, err := h.liveFeature(c.Request.Context(), claims.AccountID)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "internal error")
 		return "", "", false
 	}
-	if !caps.LiveSale {
+	if !st.Available {
 		c.JSON(http.StatusForbidden, gin.H{"error": "plan", "message": "La venta en vivo viene desde el plan Plataforma."})
+		return "", "", false
+	}
+	if !st.Enabled {
+		c.JSON(http.StatusForbidden, gin.H{"error": "feature_off", "message": "La venta en vivo está apagada. Actívala en Configuración."})
 		return "", "", false
 	}
 	return claims.AccountID, claims.Sub, true
@@ -90,12 +94,12 @@ type pageView struct {
 func (h *Handler) LiveStatus(c *gin.Context) {
 	claims, _ := currentClaims(c)
 	ctx := c.Request.Context()
-	caps, err := h.accountCaps(ctx, claims.AccountID)
+	st, err := h.liveFeature(ctx, claims.AccountID)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "internal error")
 		return
 	}
-	out := gin.H{"plan_allows": caps.LiveSale, "meta_ready": h.Meta.Enabled(), "pages": []pageView{}, "erp": "not_connected",
+	out := gin.H{"plan_allows": st.Available, "enabled": st.Enabled, "meta_ready": h.Meta.Enabled(), "pages": []pageView{}, "erp": "not_connected",
 		"confirm_minutes": h.Cfg.LiveConfirmMinutes}
 	if pages, err := db.ListMetaPages(ctx, h.Accounts, claims.AccountID); err == nil {
 		views := []pageView{}
@@ -139,6 +143,7 @@ func (h *Handler) LiveSetup(c *gin.Context) {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "erp_update", "message": "Estamos actualizando tu ERP para la venta en vivo. Vuelve a intentarlo en unos minutos."})
 		return
 	}
+	installedModels.Delete(accountID) // the search bar now offers it
 	c.JSON(http.StatusOK, gin.H{"installed": true})
 }
 
@@ -639,6 +644,7 @@ func (h *Handler) LivePublish(c *gin.Context) {
 		want[id] = true
 	}
 	loyalty, _ := erpGetParam(ctx, cl, liveParams["loyalty_enabled"])
+	word, _ := erpGetParam(ctx, cl, liveParams["claim_word"])
 	posted, failed := 0, 0
 	for _, l := range sum.Lines {
 		if l.State != "unsold" || (len(want) > 0 && !want[l.ID]) {
@@ -649,7 +655,7 @@ func (h *Handler) LivePublish(c *gin.Context) {
 			failed++
 			continue
 		}
-		caption := live.PostCaption(l.Price, desc, loyalty == "1" || loyalty == "true")
+		caption := live.PostCaption(l.Price, desc, loyalty == "1" || loyalty == "true", word)
 		postID, err := h.Meta.PostPhoto(ctx, page.PageID, page.token, img, fmt.Sprintf("articulo-%d.png", l.ID), caption)
 		if err != nil {
 			log.Printf("live: post line %d: %v", l.ID, err)
@@ -773,6 +779,11 @@ func (h *Handler) LiveSaveSettings(c *gin.Context) {
 		case "card_show_logo", "loyalty_enabled":
 			if v != "1" && v != "0" {
 				respondError(c, http.StatusBadRequest, k+" es 1 o 0")
+				return
+			}
+		case "claim_word":
+			if !live.ValidClaimWord(v) {
+				respondError(c, http.StatusBadRequest, "la palabra para pedir va de 1 a 3 palabras, sin emojis, hasta 20 letras")
 				return
 			}
 		case "loyalty_min":
@@ -918,6 +929,9 @@ func (h *Handler) handleMetaEvents(ctx context.Context, wh meta.Webhook) {
 		page, err := h.pageFor(ctx, e.ID)
 		if err != nil {
 			continue // a Page AndRho doesn't serve (anymore)
+		}
+		if st, err := h.liveFeature(ctx, page.AccountID); err != nil || !st.Enabled {
+			continue // live sales are off for this account (plan or choice)
 		}
 		for _, ch := range e.Changes {
 			v := ch.Value

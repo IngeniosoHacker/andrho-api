@@ -104,6 +104,9 @@ func New(h *handlers.Handler) *gin.Engine {
 		accountGroup.DELETE("/assets/:id", middleware.RequireRole("admin"), h.DeleteAsset)
 		accountGroup.PUT("/kit", middleware.RequireRole("admin"), h.UpdateKit)
 		accountGroup.POST("/erp", middleware.RequireRole("admin"), h.ConnectERP)
+		// Features by account: on only when the plan has them and the
+		// business uses them (live sales: en_vivo, or turned on here).
+		accountGroup.PUT("/features/:feature", middleware.RequireRole("admin"), h.SetAccountFeature)
 	}
 
 	// Suggestions -- the per-view "Sugerencias" button and the global

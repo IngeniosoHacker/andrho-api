@@ -569,3 +569,14 @@ CREATE TABLE IF NOT EXISTS live_threads (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (page_id, psid)
 );
+
+-- Features an account turned on or off by hand (Configuración). A feature
+-- is available when the plan includes it; without a row here it's on only
+-- for the businesses that use it (live_sale: business type en_vivo).
+CREATE TABLE IF NOT EXISTS account_features (
+  account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  feature    TEXT NOT NULL,
+  enabled    BOOLEAN NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (account_id, feature)
+);
