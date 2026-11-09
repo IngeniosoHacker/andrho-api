@@ -2,6 +2,7 @@ package plans
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -257,6 +258,17 @@ func TestIncludes(t *testing.T) {
 	got := Includes(MustGet("galaxy"))
 	if got[0] != "Sucursales ilimitadas" || got[1] != "Usuarios ilimitados" {
 		t.Fatalf("%v", got)
+	}
+	if got[2] != "Factura electrónica FEL" {
+		t.Fatalf("galaxy without FEL: %v", got)
+	}
+	for _, line := range Includes(MustGet("base")) {
+		if strings.Contains(line, "FEL") {
+			t.Fatalf("base must not include FEL: %v", line)
+		}
+	}
+	if !MustGet("plataforma").Caps.FEL || MustGet("base").Caps.FEL {
+		t.Fatal("FEL starts at plataforma")
 	}
 	if FormatQ(2990) != "Q2,990" || FormatQ(120) != "Q120" {
 		t.Fatal("FormatQ")
