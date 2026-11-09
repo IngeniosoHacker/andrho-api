@@ -75,6 +75,12 @@ already owns and migrates its own schema.
 | `RAILWAY_ROUTER_SERVICE_ID` | — | sites-router's id, only for `SITE_WILDCARD=false`, a client's own domain or `cmd/sites-wildcard`. Replaces `RAILWAY_SITES_SERVICE_ID` (still read as a fallback). |
 | `PORKBUN_API_KEY`, `PORKBUN_SECRET_KEY`, `SITE_DNS_ZONE` | —, —, `andrho.com` | Optional: only for own domains (`SITE_WILDCARD=false`) and `cmd/sites-wildcard`. |
 | `PAYMENTS_ENABLED`          | `false` | Checkout charges through a `PaymentProvider` (`internal/billing`). There is no real provider yet: accounts are created with `billing_status=pending_payment`, `payment_skipped=true`. |
+| `META_APP_ID`, `META_APP_SECRET` | — | AndRho's Meta app (venta en vivo). Without both, sellers can organize lives and print cards, but can't connect Facebook. |
+| `META_VERIFY_TOKEN`         | — | Any long random string; the same one goes in Meta's Webhooks setup for `/meta/webhook`. |
+| `API_PUBLIC_URL`            | — | This API's public URL (`https://api.andrho.com`). Facebook Login returns to `<API_PUBLIC_URL>/meta/callback`. |
+| `META_GRAPH_VERSION`        | `v27.0` | Graph API version. |
+| `META_LOGIN_CONFIG_ID`      | — | Optional: a Facebook Login for Business configuration id; without it the login asks for the permissions by name. |
+| `LIVE_CONFIRM_MINUTES`      | `15` | How long a buyer has to tap "Sí" before the item goes to the next person who commented it. |
 
 In development, a `.env` file is loaded automatically (via `godotenv`) if
 present; its absence is not an error. In production (Railway), env vars are
@@ -384,6 +390,41 @@ emails, and de-duplicates (by code, email or name; the last row wins). A dry
 run returns the report and a preview without writing; otherwise Load creates
 or updates products (with stock as an inventory adjustment and categories)
 and customers. `GET /erp/imports` lists the runs (`etl_runs`).
+
+### Venta en vivo: `/live/*`, `/meta/*` and `GET /erp/locate`
+
+Selling through Facebook lives (`founder/live-sale-spec.md`). Gated by the
+plan's `live_sale` capability (Plataforma and up). The ERP side is the
+`andrho_live_sale` module (`andrho_odoo` repo): lives and their items,
+reservations in stock, shipping cards (PDF, four 10 × 10 cm per letter page)
+and buyers (loyalty). AndRho talks to Meta (`internal/meta`) and holds the
+rules (`internal/live`):
+
+- `GET /live/status`; `POST /live/setup` (admin) installs the ERP module the
+  first time (`update_list` + install).
+- `GET /live/meta/connect` (admin) → Facebook Login → `GET /meta/callback`
+  stores the seller's Pages (`meta_pages`, token sealed) and subscribes the
+  Page to the webhook; `PUT /live/meta/page`, `DELETE /live/meta`.
+- `GET /live/products`; `POST /live/sessions` ("Organizar venta": order and
+  short live names, created in the ERP); `POST /live/sessions/:id/start`
+  (finds the Page's live on air and polls its comments every 2 s; also
+  automatic on the `live_videos` webhook); `…/end`; `…/publish` (one photo
+  post per unsold item, "comenta Mío").
+- A matching comment reserves the item and gets a private reply with Sí/No
+  buttons (`live_claims`); "No" or no answer in `LIVE_CONFIRM_MINUTES` passes
+  it to the next commenter. "Sí" confirms it in the ERP (card + stock
+  reservation) and asks phone and address in Messenger (`live_threads`).
+  On posts only "mío"/"Mío" counts; the post is deleted once confirmed.
+- `GET /live/cards`, `POST /live/cards/print` (PDF through the ERP entry),
+  `GET|PUT /live/settings` (card message and logo, loyalty), `GET /live/metrics`.
+- `POST /meta/webhook` checks `X-Hub-Signature-256` with `META_APP_SECRET`;
+  `GET /meta/webhook` answers Meta's check with `META_VERIFY_TOKEN`.
+- `GET /erp/locate?q=` is the dashboard's search bar (`internal/locate`):
+  synonyms in Spanish ("productos" → Inventario › Productos, "en vivo" → the
+  lives); `POST /erp/sso {next}` opens the ERP right there.
+
+End-to-end test (real Postgres and Odoo, fake Graph API):
+`LIVE_IT_PG=… LIVE_IT_ODOO=… LIVE_IT_ODOO_DB=… go test -tags integration -run TestLiveEndToEnd ./internal/handlers/`.
 
 ### Team presence and preferences
 

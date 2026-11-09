@@ -47,6 +47,17 @@ type Config struct {
 	// AndRhoSiteID is AndRho's own site in the tracker (the landing, its
 	// minigame): what the staff admin views read.
 	AndRhoSiteID string
+
+	// Venta en vivo (internal/meta): AndRho's Meta app. Empty MetaAppID or
+	// MetaAppSecret = live sales can be organized but not connected to
+	// Facebook yet. PublicURL is this API's public address, for Facebook
+	// Login's callback (<PublicURL>/meta/callback) and the webhook
+	// (<PublicURL>/meta/webhook).
+	MetaAppID, MetaAppSecret, MetaVerifyToken, MetaGraphVersion, MetaLoginConfigID string
+	PublicURL                                                                      string
+	// LiveConfirmMinutes: how long a buyer has to tap "Sí" before the item
+	// goes to the next person who commented it.
+	LiveConfirmMinutes int
 }
 
 // Load reads a .env file if present (silently ignored when missing, since in
@@ -82,6 +93,13 @@ func Load() *Config {
 		StaffAdmins:         parseOrigins(getEnv("ANDRHO_ADMINS", "")),
 		StaffCreators:       parseOrigins(getEnv("ANDRHO_CREATORS", "test@andrho.dev")),
 		AndRhoSiteID:        getEnv("ANDRHO_SITE_ID", "andrho"),
+		MetaAppID:           getEnv("META_APP_ID", ""),
+		MetaAppSecret:       getEnv("META_APP_SECRET", ""),
+		MetaVerifyToken:     getEnv("META_VERIFY_TOKEN", ""),
+		MetaGraphVersion:    getEnv("META_GRAPH_VERSION", "v27.0"),
+		MetaLoginConfigID:   getEnv("META_LOGIN_CONFIG_ID", ""),
+		PublicURL:           strings.TrimRight(getEnv("API_PUBLIC_URL", ""), "/"),
+		LiveConfirmMinutes:  getEnvInt("LIVE_CONFIRM_MINUTES", 15),
 	}
 	if cfg.SecretsKey == "" {
 		log.Println("config: SECRETS_KEY is not set, stored credentials are encrypted with a key derived from JWT_SECRET")

@@ -21,6 +21,9 @@ type SSOUser struct {
 	Login string // the AndRho email
 	Name  string
 	Role  string // owner | admin | editor | viewer
+	// Next is where to land inside the ERP (the dashboard's search bar):
+	// an /odoo/... or /report/... path. Empty = Inventario.
+	Next string
 }
 
 // SSOURL is the address that logs u into the ERP at baseURL without an
@@ -33,14 +36,18 @@ type SSOUser struct {
 // with payload {login, name, role, aud: database, exp, jti}; Odoo accepts
 // each jti once.
 func SSOURL(baseURL, database, secret string, u SSOUser, now time.Time) string {
-	payload, _ := json.Marshal(map[string]any{
+	claims := map[string]any{
 		"login": strings.ToLower(strings.TrimSpace(u.Login)),
 		"name":  u.Name,
 		"role":  u.Role,
 		"aud":   database,
 		"exp":   now.Add(SSOTTL).Unix(),
 		"jti":   uuid.NewString(),
-	})
+	}
+	if u.Next != "" {
+		claims["next"] = u.Next
+	}
+	payload, _ := json.Marshal(claims)
 	body := base64.RawURLEncoding.EncodeToString(payload)
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(body))

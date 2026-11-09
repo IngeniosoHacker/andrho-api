@@ -11,6 +11,8 @@
 //	              waste, purchases, menu and orders
 //	ventas        reselling products it doesn't make: point of sale,
 //	              stock, purchases, delivery, catalog
+//	en_vivo       selling through Facebook and Instagram lives, alone or
+//	              with family: live sales, stock, shipping cards, buyers
 //
 // Anything else (manufacturing, for now) has no type: the analysis alone
 // decides. The type is inferred from the signup's sectors (or the
@@ -131,8 +133,37 @@ var Profiles = map[string]Profile{
 	},
 }
 
+func init() {
+	Profiles["en_vivo"] = Profile{
+		Key: "en_vivo", Name: "Vende en vivo",
+		Description: "Negocios que venden por lives de Facebook e Instagram: muestran, la gente comenta y se aparta.",
+		Examples:    []string{"ropa", "pacas", "cosméticos", "accesorios", "artículos para el hogar"},
+		Modules:     []string{"inventario", "redes", "clientes"},
+		// andrho_live_sale isn't listed: it's installed the first time the
+		// seller opens "En vivo" (POST /live/setup), so a signup never
+		// depends on the ERP image having it yet.
+		OdooApps: []string{},
+		Sections: []string{"inicio", "envivo", "inventario", "clientes", "social", "resumen", "usuarios", "web", "sucursales", "prospectos"},
+		Focus: []string{
+			"Cuántos apartados se confirman en cada live",
+			"Qué artículos se venden primero y a qué hora vendes más",
+			"Quiénes te compran más seguido",
+		},
+		Site: Site{
+			Headline: "Lo que mostramos en vivo, también aquí",
+			CTA:      "Síguenos para el próximo live",
+			Sections: []SiteSection{
+				{"lives", "Próximo live", "Día y hora del siguiente live"},
+				{"catalogo", "Lo que queda", "Artículos que no se vendieron en el live"},
+				{"envios", "Envíos", "Zonas, tiempos y costo de entrega"},
+				{"contacto", "Escríbenos", "Messenger y WhatsApp"},
+			},
+		},
+	}
+}
+
 // Keys in display order.
-var Keys = []string{"servicios", "restaurantes", "ventas"}
+var Keys = []string{"servicios", "restaurantes", "ventas", "en_vivo"}
 
 // Get returns the profile for key, ok=false for none/unknown.
 func Get(key string) (Profile, bool) {
@@ -150,13 +181,15 @@ var bySector = map[string]string{
 	"comercio":     "ventas",
 }
 
-// Food first (a restaurant also "sells"), then services, then retail.
-var precedence = []string{"restaurantes", "servicios", "ventas"}
+// Live sellers first (they also "sell"), then food (a restaurant also
+// "sells"), then services, then retail.
+var precedence = []string{"en_vivo", "restaurantes", "servicios", "ventas"}
 
 var keywords = map[string][]string{
 	"restaurantes": {"restaurante", "comedor", "cafeter", "cocina", "comida", "pizzer", "panader", "food truck", "platillo", "almuerzo", "menú"},
 	"servicios":    {"plomer", "electric", "taller", "limpieza", "consultor", "instalac", "reparac", "mantenimiento", "servicio", "clínica", "clinica", "salón", "barber", "fumiga", "jardiner", "carpinter"},
 	"ventas":       {"tienda", "vendo", "venta de", "vendemos", "abarrot", "ferreter", "boutique", "distribui", "importa", "revend", "catálogo", "catalogo"},
+	"en_vivo":      {"en vivo", "lives", "transmisi", "pacas", "paca"},
 }
 
 // Classify infers the type from the signup's sectors, or from the

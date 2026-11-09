@@ -195,6 +195,12 @@ func (c *Client) HasField(ctx context.Context, model, field string) bool {
 	return err == nil && n > 0
 }
 
+// UpdateModuleList makes Odoo read its addons again, so a module added to
+// the image after the database was created can be installed.
+func (c *Client) UpdateModuleList(ctx context.Context) error {
+	return c.Exec(ctx, "ir.module.module", "update_list", []any{}, nil, nil)
+}
+
 // InstallModules installs the named Odoo apps that aren't installed yet
 // (with their dependencies) and returns which ones it installed. It needs an
 // administrator login and takes minutes: give it a long context.

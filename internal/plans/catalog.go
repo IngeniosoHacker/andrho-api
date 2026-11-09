@@ -28,6 +28,10 @@ type Capabilities struct {
 	// AndRho's businesses aren't formal yet and shouldn't pay for invoicing
 	// they can't use; it comes from Plataforma, the step up when they formalize.
 	FEL bool `json:"fel"`
+	// LiveSale: venta en vivo (founder/live-sale-spec.md): aparta con el
+	// primer comentario, confirma por Messenger, tarjetas de envío y
+	// publicación de lo no vendido. Needs Social, so from Plataforma.
+	LiveSale bool `json:"live_sale"`
 	// WhatsApp: "" (no), "avisos" (avisos y reportes) or "control" (control
 	// total por comandos, WhatsAppCommands al mes).
 	WhatsApp         string `json:"whatsapp"`
@@ -81,15 +85,15 @@ var catalog = []Plan{
 	{ID: "base", Name: "Base", Label: "Simple", Price: 120, Tagline: "Tu negocio en un panel, sin complicarte.",
 		Caps: Capabilities{Branches: 1, Users: 1, Support: "autoservicio", Suggestions: 3, ModuleLimit: 1}},
 	{ID: "plataforma", Name: "Plataforma", Label: "Básico", Price: 349, Tagline: "Tus ventas y tus redes, en el mismo lugar.",
-		Caps: Capabilities{FEL: true, Branches: 1, Users: 2, Social: true, Support: "chat", Suggestions: 5, ModuleLimit: 2}},
+		Caps: Capabilities{FEL: true, LiveSale: true, Branches: 1, Users: 2, Social: true, Support: "chat", Suggestions: 5, ModuleLimit: 2}},
 	{ID: "despegue", Name: "Despegue", Label: "En crecimiento", Price: 750, Tagline: "Lo esencial para dejar de decidir a ciegas.",
-		Caps: Capabilities{FEL: true, Branches: 3, Users: 6, Social: true, WhatsApp: "avisos", CreatorTasks: 1, Support: "chat",
+		Caps: Capabilities{FEL: true, LiveSale: true, Branches: 3, Users: 6, Social: true, WhatsApp: "avisos", CreatorTasks: 1, Support: "chat",
 			Suggestions: 10, ModuleLimit: 3}},
 	{ID: "en_orbita", Name: "En órbita", Label: "Pro", Price: 1200, Tagline: "Para crecer con cada área conectada.",
-		Caps: Capabilities{FEL: true, Branches: 6, Users: 15, Social: true, WhatsApp: "control", WhatsAppCommands: 400, Website: true, Store: true,
+		Caps: Capabilities{FEL: true, LiveSale: true, Branches: 6, Users: 15, Social: true, WhatsApp: "control", WhatsAppCommands: 400, Website: true, Store: true,
 			CreatorTasks: 2, Support: "chat", LiveSupportHours: 1, Suggestions: 30, ModuleLimit: 6}},
 	{ID: "galaxy", Name: "Galaxy", Label: "Ilimitado", Price: 2990, Tagline: "Tu negocio completo. Nada se queda en tierra.",
-		Caps: Capabilities{FEL: true, Branches: Unlimited, Users: Unlimited, Social: true, WhatsApp: "control", WhatsAppCommands: 1500, OwnNumber: true,
+		Caps: Capabilities{FEL: true, LiveSale: true, Branches: Unlimited, Users: Unlimited, Social: true, WhatsApp: "control", WhatsAppCommands: 1500, OwnNumber: true,
 			Website: true, Store: true, FullSite: true, CreatorTasks: 4, Support: "chat", LiveSupportHours: 2,
 			Suggestions: Unlimited, ModuleLimit: Unlimited}},
 }
@@ -192,6 +196,9 @@ func Includes(p Plan) []string {
 	}
 	if c.Social {
 		out = append(out, "Facebook e Instagram")
+	}
+	if c.LiveSale {
+		out = append(out, "Venta en vivo: aparta, confirma por Messenger y arma tus envíos")
 	}
 	switch c.WhatsApp {
 	case "avisos":

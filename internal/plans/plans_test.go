@@ -270,6 +270,9 @@ func TestIncludes(t *testing.T) {
 	if !MustGet("plataforma").Caps.FEL || MustGet("base").Caps.FEL {
 		t.Fatal("FEL starts at plataforma")
 	}
+	if !MustGet("plataforma").Caps.LiveSale || MustGet("base").Caps.LiveSale || !MustGet("galaxy").Caps.LiveSale {
+		t.Fatal("live sale starts at plataforma")
+	}
 	if FormatQ(2990) != "Q2,990" || FormatQ(120) != "Q120" {
 		t.Fatal("FormatQ")
 	}

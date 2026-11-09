@@ -480,3 +480,92 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_push_subscriptions_account ON push_subscriptions (account_id);
+
+-- Venta en vivo (internal/live, founder/live-sale-spec.md). The seller's
+-- Facebook Pages, connected with Facebook Login: the Page token is sealed
+-- like the ERP password (internal/secret). One selected Page per account
+-- sells; its events (comments, Messenger) reach POST /meta/webhook.
+CREATE TABLE IF NOT EXISTS meta_pages (
+  page_id      TEXT PRIMARY KEY,
+  account_id   UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL DEFAULT '',
+  picture      TEXT NOT NULL DEFAULT '',
+  ig_user_id   TEXT NOT NULL DEFAULT '',
+  token        BYTEA NOT NULL,
+  selected     BOOLEAN NOT NULL DEFAULT false,
+  subscribed   BOOLEAN NOT NULL DEFAULT false,
+  connected_by UUID,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_meta_pages_account ON meta_pages (account_id);
+
+-- A live sale: AndRho's side of the ERP's andrho.live.sale (odoo_live_id).
+-- status: ready (organized) -> live (AndRho reads its comments) -> done.
+CREATE TABLE IF NOT EXISTS live_sessions (
+  id               UUID PRIMARY KEY,
+  account_id       UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  odoo_live_id     INTEGER NOT NULL,
+  page_id          TEXT NOT NULL DEFAULT '',
+  platform_live_id TEXT NOT NULL DEFAULT '',
+  live_url         TEXT NOT NULL DEFAULT '',
+  status           TEXT NOT NULL DEFAULT 'ready',
+  last_comment_at  TIMESTAMPTZ,
+  started_at       TIMESTAMPTZ,
+  ended_at         TIMESTAMPTZ,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_live_sessions_account ON live_sessions (account_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_live_sessions_live ON live_sessions (status) WHERE status = 'live';
+CREATE INDEX IF NOT EXISTS idx_live_sessions_platform ON live_sessions (platform_live_id) WHERE platform_live_id <> '';
+
+-- Every comment that took (or queued for) an item: from the live
+-- (source=live) or from an unsold-item post ("mío", source=post).
+-- state: queued (someone else has it) -> asked (private reply sent) ->
+-- confirmed | declined | expired | failed. One row per Meta comment.
+CREATE TABLE IF NOT EXISTS live_claims (
+  id           BIGSERIAL PRIMARY KEY,
+  account_id   UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  session_id   UUID REFERENCES live_sessions(id) ON DELETE CASCADE,
+  page_id      TEXT NOT NULL,
+  odoo_line_id INTEGER NOT NULL,
+  source       TEXT NOT NULL DEFAULT 'live',
+  post_id      TEXT NOT NULL DEFAULT '',
+  comment_id   TEXT NOT NULL UNIQUE,
+  author_id    TEXT NOT NULL DEFAULT '',
+  author_name  TEXT NOT NULL DEFAULT '',
+  comment_text TEXT NOT NULL DEFAULT '',
+  commented_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  state        TEXT NOT NULL DEFAULT 'queued',
+  psid         TEXT NOT NULL DEFAULT '',
+  card_id      INTEGER,
+  asked_at     TIMESTAMPTZ,
+  answered_at  TIMESTAMPTZ,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_live_claims_line ON live_claims (account_id, odoo_line_id, state, commented_at);
+CREATE INDEX IF NOT EXISTS idx_live_claims_session ON live_claims (session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_live_claims_asked ON live_claims (asked_at) WHERE state = 'asked';
+
+-- Unsold items posted on the Page after a live; a "mío" there claims it.
+CREATE TABLE IF NOT EXISTS live_posts (
+  post_id      TEXT PRIMARY KEY,
+  account_id   UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  session_id   UUID REFERENCES live_sessions(id) ON DELETE SET NULL,
+  page_id      TEXT NOT NULL,
+  odoo_line_id INTEGER NOT NULL,
+  state        TEXT NOT NULL DEFAULT 'open',
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- A buyer's Messenger conversation after "Sí": which shipping detail
+-- AndRho is waiting for (step: phone | address | change | '').
+CREATE TABLE IF NOT EXISTS live_threads (
+  page_id    TEXT NOT NULL,
+  psid       TEXT NOT NULL,
+  account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  step       TEXT NOT NULL DEFAULT '',
+  card_id    INTEGER,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (page_id, psid)
+);

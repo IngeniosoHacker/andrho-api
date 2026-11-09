@@ -154,7 +154,39 @@ func New(h *handlers.Handler) *gin.Engine {
 		erpGroup.GET("/history", h.ERPHistory)
 		erpGroup.GET("/imports", h.ListImports)
 		erpGroup.POST("/import", middleware.RequireRole("editor"), h.ImportERP)
+		// The dashboard's search bar (like locate): "productos" -> Inventario.
+		erpGroup.GET("/locate", h.ERPLocate)
 	}
+
+	// Venta en vivo (founder/live-sale-spec.md): the dashboard's "En vivo".
+	// Plan-gated inside (live_sale, Plataforma and up).
+	liveGroup := r.Group("/live")
+	liveGroup.Use(requireAuth)
+	{
+		liveGroup.GET("/status", h.LiveStatus)
+		liveGroup.POST("/setup", middleware.RequireRole("admin"), h.LiveSetup)
+		liveGroup.GET("/meta/connect", middleware.RequireRole("admin"), h.LiveMetaConnect)
+		liveGroup.PUT("/meta/page", middleware.RequireRole("admin"), h.LiveSelectPage)
+		liveGroup.DELETE("/meta", middleware.RequireRole("admin"), h.LiveDisconnect)
+		liveGroup.GET("/products", h.LiveProducts)
+		liveGroup.GET("/sessions", h.LiveList)
+		liveGroup.POST("/sessions", middleware.RequireRole("editor"), h.LiveCreate)
+		liveGroup.GET("/sessions/:id", h.LiveGet)
+		liveGroup.POST("/sessions/:id/start", middleware.RequireRole("editor"), h.LiveStart)
+		liveGroup.POST("/sessions/:id/end", middleware.RequireRole("editor"), h.LiveEnd)
+		liveGroup.POST("/sessions/:id/publish", middleware.RequireRole("editor"), h.LivePublish)
+		liveGroup.GET("/cards", h.LiveCards)
+		liveGroup.POST("/cards/print", middleware.RequireRole("editor"), h.LiveCardsPrint)
+		liveGroup.GET("/settings", h.LiveSettings)
+		liveGroup.PUT("/settings", middleware.RequireRole("admin"), h.LiveSaveSettings)
+		liveGroup.GET("/metrics", h.LiveMetrics)
+	}
+
+	// Meta (public): Facebook Login's return and the Page webhook (signed
+	// with the app secret).
+	r.GET("/meta/callback", h.MetaCallback)
+	r.GET("/meta/webhook", h.MetaWebhookVerify)
+	r.POST("/meta/webhook", h.MetaWebhook)
 
 	// AndRho's own team (staff table): admins see AndRho's metrics,
 	// creators work on customer tasks.

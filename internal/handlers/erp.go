@@ -139,37 +139,18 @@ func (h *Handler) ERPStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"connected": true, "url": conn.URL, "db": conn.DBName, "login": conn.Login})
 }
 
-// ERPSSO handles POST /erp/sso: where the dashboard's ERP button goes. For
-// the ERP AndRho provisioned it's a one-time address that opens the user's
-// session there, with their AndRho email (internal/odoo.SSOURL); for an
-// Odoo the business connected itself, just its address.
+// ERPSSO handles POST /erp/sso: where the dashboard's ERP button and its
+// search bar go. For the ERP AndRho provisioned it's a one-time address
+// that opens the user's session there, with their AndRho email
+// (internal/odoo.SSOURL), landing on {next} when given (an /odoo/... path
+// from GET /erp/locate); for an Odoo the business connected itself, just
+// its address.
 func (h *Handler) ERPSSO(c *gin.Context) {
-	claims, _ := currentClaims(c)
-	ctx := c.Request.Context()
-	conn, err := db.GetOdooConnection(ctx, h.Accounts, claims.AccountID)
-	if errors.Is(err, db.ErrNotFound) {
-		respondError(c, http.StatusNotFound, "erp_not_connected")
-		return
+	var req struct {
+		Next string `json:"next"`
 	}
-	if err != nil {
-		respondError(c, http.StatusInternalServerError, "internal error")
-		return
-	}
-	if len(conn.SSOSecret) == 0 {
-		c.JSON(http.StatusOK, gin.H{"url": conn.URL, "sso": false})
-		return
-	}
-	secret, err := h.Secrets.Open(conn.SSOSecret)
-	if err != nil {
-		respondError(c, http.StatusInternalServerError, "internal error")
-		return
-	}
-	name := claims.Email
-	if u, err := db.GetUserByID(ctx, h.Accounts, claims.Sub); err == nil && u.DisplayName != "" {
-		name = u.DisplayName
-	}
-	url := odoo.SSOURL(conn.URL, conn.DBName, secret, odoo.SSOUser{Login: claims.Email, Name: name, Role: claims.Role}, time.Now())
-	c.JSON(http.StatusOK, gin.H{"url": url, "sso": true})
+	_ = c.ShouldBindJSON(&req)
+	h.ssoTo(c, strings.TrimSpace(req.Next))
 }
 
 // ERPInventory handles GET /erp/inventory: products with stock and value,

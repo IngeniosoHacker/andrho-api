@@ -104,6 +104,8 @@ func Run(ctx context.Context, src Sources, client *ai.Client, accountID, section
 		leads(ctx, src, &a)
 	case "sucursales":
 		branches(ctx, src, &a)
+	case "envivo":
+		liveSales(ctx, src, &a)
 	case "inicio", "resumen":
 		// The whole business at a glance: the headline of each area.
 		for _, f := range headlineParts(src.BusinessType) {
@@ -187,6 +189,8 @@ func noDataSummary(section string) string {
 		return "Cuando conectes tus redes, aquí verás qué publicaciones atraen clientes."
 	case "inventario", "clientes", "prospectos", "sucursales":
 		return "Conecta tu ERP y AndRho empezará a leer esta sección por ti."
+	case "envivo":
+		return "Después de tu primer live, aquí verás cuánto vendiste, qué no se vendió y a qué hora te va mejor."
 	}
 	return "AndRho resume aquí lo más importante de esta sección cada vez que entras."
 }
@@ -688,6 +692,8 @@ func headlineParts(businessType string) []func(context.Context, Sources, *analys
 		return []func(context.Context, Sources, *analysis){leads, customers, web}
 	case "restaurantes", "ventas":
 		return []func(context.Context, Sources, *analysis){inventory, customers, web}
+	case "en_vivo":
+		return []func(context.Context, Sources, *analysis){liveSales, inventory, customers}
 	}
 	return []func(context.Context, Sources, *analysis){web, customers, inventory}
 }

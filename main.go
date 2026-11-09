@@ -77,6 +77,9 @@ func main() {
 	// Provisioning that waits for the VPS (or failed) is retried in the
 	// background once VPS_* is configured.
 	go h.Provision.RetryLoop(ctx, 10*time.Minute, h.ProvisionAccount)
+	// Venta en vivo: lives on air are read again after a restart, and
+	// unanswered confirmations pass to the next commenter.
+	go h.LiveLoop(ctx)
 	// Client sites: create each site-<account_id> service in Railway's
 	// Clients project and mark it live once deployed (internal/provision/sites.go).
 	go h.Provision.SiteLoop(ctx, time.Minute, h.ProvisionAccount)

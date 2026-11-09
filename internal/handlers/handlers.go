@@ -13,6 +13,7 @@ import (
 	"github.com/IngeniosoHacker/andrho-api/internal/billing"
 	"github.com/IngeniosoHacker/andrho-api/internal/config"
 	"github.com/IngeniosoHacker/andrho-api/internal/db"
+	"github.com/IngeniosoHacker/andrho-api/internal/meta"
 	"github.com/IngeniosoHacker/andrho-api/internal/notify"
 	"github.com/IngeniosoHacker/andrho-api/internal/provision"
 	"github.com/IngeniosoHacker/andrho-api/internal/rstats"
@@ -36,12 +37,16 @@ type Handler struct {
 	Payments billing.PaymentProvider
 	// Notify tells people when their ERP is ready (email + Web Push).
 	Notify *notify.Notifier
+	// Meta is AndRho's Meta app (venta en vivo); Enabled() is false until
+	// META_APP_ID and META_APP_SECRET are set.
+	Meta *meta.Client
 }
 
 // New builds a Handler. AI calls record their tokens in token_usage. A bad
 // VPS configuration (key or host key that don't parse) is an error.
 func New(accounts, tracker *pgxpool.Pool, rdb *redis.Client, cfg *config.Config) (*Handler, error) {
-	h := &Handler{Accounts: accounts, Tracker: tracker, Redis: rdb, Cfg: cfg}
+	h := &Handler{Accounts: accounts, Tracker: tracker, Redis: rdb, Cfg: cfg,
+		Meta: meta.New(cfg.MetaAppID, cfg.MetaAppSecret, cfg.MetaGraphVersion, cfg.MetaLoginConfigID)}
 	box, err := secret.New(cfg.SecretsKey)
 	if err != nil {
 		return nil, err
