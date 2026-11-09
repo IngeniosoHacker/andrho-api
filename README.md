@@ -79,7 +79,7 @@ already owns and migrates its own schema.
 | `META_VERIFY_TOKEN`         | — | Any long random string; the same one goes in Meta's Webhooks setup for `/meta/webhook`. |
 | `API_PUBLIC_URL`            | — | This API's public URL (`https://api.andrho.com`). Facebook Login returns to `<API_PUBLIC_URL>/meta/callback`. |
 | `META_GRAPH_VERSION`        | `v27.0` | Graph API version. |
-| `META_LOGIN_CONFIG_ID`      | — | Optional: a Facebook Login for Business configuration id; without it the login asks for the permissions by name. |
+| `META_LOGIN_CONFIG_ID`      | — | The Facebook Login for Business configuration id (founder/meta-cuenta-oficial.md §5). Needed in production: the app uses Login for Business, which WhatsApp Embedded Signup also requires. Without it the dialog asks for the permissions by name (classic Login, development only). |
 | `LIVE_CONFIRM_MINUTES`      | `15` | How long a buyer has to tap "Sí" before the item goes to the next person who commented it. |
 
 In development, a `.env` file is loaded automatically (via `godotenv`) if
