@@ -392,8 +392,11 @@ func CalculateAddonPrice(planID string, selected []Selection) (Quote, error) {
 		if site.Upgrade {
 			label += " (mejora)"
 		}
-		q.Addons = append(q.Addons, QuoteLine{FeatureID: site.FeatureID, Label: "Mantenimiento: " + label, Qty: 1, Price: site.Monthly})
-		q.AddonsTotal += site.Monthly
+		// An upgrade over an included site keeps the same upkeep: no line.
+		if site.Monthly > 0 {
+			q.Addons = append(q.Addons, QuoteLine{FeatureID: site.FeatureID, Label: "Mantenimiento: " + label, Qty: 1, Price: site.Monthly})
+			q.AddonsTotal += site.Monthly
+		}
 		q.Setup = append(q.Setup, QuoteLine{FeatureID: site.FeatureID, Label: "Construcción: " + label, Qty: 1, Price: site.Setup})
 		q.SetupTotal = site.Setup
 	}

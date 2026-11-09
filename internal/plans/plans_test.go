@@ -118,7 +118,7 @@ func TestUpgradeIsCheaperBothWays(t *testing.T) {
 	}
 	// The site's upkeep doesn't make moving up "cheaper": En órbita includes it, but it isn't a step add-on.
 	q, _ = CalculateAddonPrice("despegue", []Selection{{FeatureID: "whatsapp_control"}, {FeatureID: "sitio_pro"}})
-	if q.UpgradeIsCheaper || q.Total != 750+160+400 {
+	if q.UpgradeIsCheaper || q.Total != 750+160+150 {
 		t.Fatalf("site %+v", q)
 	}
 	// Exactly the next price counts as cheaper (>=): base + all three = 120+300 = 420 ≥ 349.

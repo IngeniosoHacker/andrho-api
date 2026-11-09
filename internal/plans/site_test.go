@@ -8,12 +8,12 @@ import (
 func TestSiteOptions(t *testing.T) {
 	// No site: every level at full price.
 	o := SiteOptions("despegue")
-	if len(o) != 3 || o[0].Included || o[0].Setup != 1500 || o[0].Monthly != 150 || o[2].Setup != 4000 || o[2].Monthly != 400 {
+	if len(o) != 3 || o[0].Included || o[0].Setup != 1500 || o[0].Monthly != 150 || o[2].Setup != 4000 || o[2].Monthly != 150 {
 		t.Fatalf("despegue %+v", o)
 	}
-	// En órbita includes the store; pro costs the difference.
+	// En órbita includes the store; pro costs the difference (same upkeep).
 	o = SiteOptions("en_orbita")
-	if len(o) != 2 || !o[0].Included || o[0].ID != "tienda" || o[0].Setup != 0 || !o[1].Upgrade || o[1].Setup != 1500 || o[1].Monthly != 150 {
+	if len(o) != 2 || !o[0].Included || o[0].ID != "tienda" || o[0].Setup != 0 || !o[1].Upgrade || o[1].Setup != 1500 || o[1].Monthly != 0 {
 		t.Fatalf("en_orbita %+v", o)
 	}
 	// Galaxy includes pro: nothing to buy.
@@ -28,7 +28,7 @@ func TestQuoteWithSite(t *testing.T) {
 		t.Fatalf("base %+v %v", q, err)
 	}
 	q, err = CalculateAddonPrice("en_orbita", []Selection{{FeatureID: "sitio_pro"}})
-	if err != nil || q.Total != 1200+150 || q.SetupTotal != 1500 {
+	if err != nil || q.Total != 1200 || q.SetupTotal != 1500 || len(q.Addons) != 0 {
 		t.Fatalf("pro on en_orbita %+v %v", q, err)
 	}
 	for _, c := range []struct{ plan, site string }{{"en_orbita", "sitio_tienda"}, {"en_orbita", "sitio_basico"}, {"galaxy", "sitio_pro"}} {

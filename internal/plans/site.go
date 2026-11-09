@@ -4,10 +4,11 @@ import "fmt"
 
 // The website is its own product, not a plan feature: building it is
 // charged once (Setup) and keeping it up is a monthly fee (Monthly) added
-// to whatever plan the business has. Three levels; En órbita includes
+// to whatever plan the business has. Three levels; the upkeep is the same
+// for all three (Q150/mes), only the construction grows. En órbita includes
 // "tienda" and Galaxy "pro" (construction and upkeep). On a plan that
 // includes a level, a higher one costs the difference ("sitio pro" on En
-// órbita: Q1,500 once + Q150/mes).
+// órbita: Q1,500 once and nothing more a month).
 //
 // A level is bought like an add-on (account_plan.addons, FeatureID
 // "sitio_basico" | "sitio_tienda" | "sitio_pro"), but on any plan.
@@ -27,9 +28,9 @@ type SiteLevel struct {
 var SiteLevels = []SiteLevel{
 	{ID: "basico", FeatureID: "sitio_basico", Label: "Sitio web + SEO básico", rank: 1, Setup: 1500, Monthly: 150,
 		Detail: "Tu sitio en <nombre>.web.andrho.com, hecho por Creators y listo para Google."},
-	{ID: "tienda", FeatureID: "sitio_tienda", Label: "Sitio web con tienda en línea", rank: 2, Setup: 2500, Monthly: 250,
+	{ID: "tienda", FeatureID: "sitio_tienda", Label: "Sitio web con tienda en línea", rank: 2, Setup: 2500, Monthly: 150,
 		Detail: "Tu sitio y tu tienda: tus productos se venden en línea y aparecen en Google."},
-	{ID: "pro", FeatureID: "sitio_pro", Label: "Sitio pro", rank: 3, Setup: 4000, Monthly: 400,
+	{ID: "pro", FeatureID: "sitio_pro", Label: "Sitio pro", rank: 3, Setup: 4000, Monthly: 150,
 		Detail: "Tienda, una página por sucursal y por servicio, y blog o landings de Creators."},
 }
 
