@@ -166,6 +166,22 @@ func New(h *handlers.Handler) *gin.Engine {
 		erpGroup.GET("/locate", h.ERPLocate)
 	}
 
+	// Personal en obra: work sites, their supervisors and the staff the
+	// supervisors report by WhatsApp. Supervisors reach only this (and
+	// their own session); managing sites needs admin.
+	wfGroup := r.Group("/workforce")
+	wfGroup.Use(requireAuth)
+	{
+		wfGroup.GET("/status", h.WorkforceStatus)
+		wfGroup.POST("/setup", middleware.RequireRole("admin"), h.WorkforceSetup)
+		wfGroup.POST("/sites", middleware.RequireRole("admin"), h.WorkforceCreateSite)
+		wfGroup.PUT("/sites/:id", middleware.RequireRole("admin"), h.WorkforceUpdateSite)
+		wfGroup.PUT("/sites/:id/supervisors", middleware.RequireRole("admin"), h.WorkforceSetSupervisors)
+		wfGroup.PUT("/settings", middleware.RequireRole("admin"), h.WorkforceSettings)
+		wfGroup.GET("/staff", h.WorkforceStaff)
+		wfGroup.POST("/employees/:id/terminate", h.WorkforceTerminate)
+	}
+
 	// Venta en vivo (founder/live-sale-spec.md): the dashboard's "En vivo".
 	// Plan-gated inside (live_sale, Plataforma and up).
 	liveGroup := r.Group("/live")

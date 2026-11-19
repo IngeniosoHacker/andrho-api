@@ -13,6 +13,9 @@
 //	              stock, purchases, delivery, catalog
 //	en_vivo       selling through Facebook and Instagram lives, alone or
 //	              with family: live sales, stock, shipping cards, buyers
+//	construccion  construction companies and contractors: staff per work
+//	              site (obra), crews and where they work, reported by the
+//	              supervisors by WhatsApp; projects
 //
 // Anything else (manufacturing, for now) has no type: the analysis alone
 // decides. The type is inferred from the signup's sectors (or the
@@ -162,8 +165,36 @@ func init() {
 	}
 }
 
+func init() {
+	Profiles["construccion"] = Profile{
+		Key: "construccion", Name: "Construcción",
+		Description: "Constructoras y contratistas: obras, cuadrillas y personal en sitio, muchas veces sin computadora.",
+		Examples:    []string{"constructoras", "contratistas", "remodelaciones", "obra gris", "acabados"},
+		Modules:     []string{"rrhh", "inventario", "compras", "whatsapp"},
+		// hr for the staff (andrho_workforce is installed when Personal is
+		// turned on), project for the works themselves.
+		OdooApps: []string{"hr", "project"},
+		Sections: []string{"inicio", "personal", "usuarios", "inventario", "resumen", "sucursales", "web", "social", "clientes", "prospectos"},
+		Focus: []string{
+			"Cuánto personal tienes en cada obra",
+			"Qué cuadrillas no reportaron hoy",
+			"Altas de trabajadores que faltan por confirmar",
+		},
+		Site: Site{
+			Headline: "Construimos lo que planeas, a tiempo",
+			CTA:      "Pide tu cotización",
+			Sections: []SiteSection{
+				{"servicios", "Lo que construimos", "Tipos de obra: vivienda, comercial, remodelaciones"},
+				{"proyectos", "Obras terminadas", "Fotos de proyectos con su ubicación"},
+				{"proceso", "Cómo trabajamos", "De la cotización a la entrega de la obra"},
+				{"contacto", "Contacto", "Teléfono, WhatsApp y zona de cobertura"},
+			},
+		},
+	}
+}
+
 // Keys in display order.
-var Keys = []string{"servicios", "restaurantes", "ventas", "en_vivo"}
+var Keys = []string{"servicios", "restaurantes", "ventas", "en_vivo", "construccion"}
 
 // Get returns the profile for key, ok=false for none/unknown.
 func Get(key string) (Profile, bool) {
@@ -192,9 +223,19 @@ var keywords = map[string][]string{
 	"en_vivo":      {"en vivo", "lives", "transmisi", "pacas", "paca"},
 }
 
+// constructionWords mark a construction business even when the signup's
+// sectors say "servicios" (a contractor sells its work).
+var constructionWords = []string{"constructora", "construcción", "construccion", "obra gris", "albañil", "contratista de obra", "obras civiles", "remodelaci"}
+
 // Classify infers the type from the signup's sectors, or from the
 // description when there are none. "" = no type (the analysis decides).
 func Classify(sectors []string, description string) string {
+	d := strings.ToLower(description)
+	for _, w := range constructionWords {
+		if strings.Contains(d, w) {
+			return "construccion"
+		}
+	}
 	found := map[string]bool{}
 	for _, s := range sectors {
 		if t := bySector[s]; t != "" {
@@ -202,7 +243,6 @@ func Classify(sectors []string, description string) string {
 		}
 	}
 	if len(found) == 0 && description != "" {
-		d := strings.ToLower(description)
 		for t, words := range keywords {
 			for _, w := range words {
 				if strings.Contains(d, w) {

@@ -13,17 +13,29 @@ package auth
 //	          complete), but can't touch users, roles or the plan.
 //	viewer -- read-only everywhere.
 //
+// Outside the ranking:
+//
+//	supervisor -- manages the staff of the work sites (obras) assigned to
+//	          them, from the dashboard's Personal section and by WhatsApp,
+//	          and nothing else: rank 0, so no RequireRole passes, and
+//	          RequireAuth lets them reach only SupervisorPaths.
+//
 // This is intentionally a fixed set of roles for v1, not a fully custom
 // role/permission builder -- see andrho-api's README for the reasoning.
 var roleRank = map[string]int{
-	"viewer": 1,
+	"supervisor": 0,
+	"viewer":     1,
 	"editor": 2,
 	"admin":  3,
 	"owner":  4,
 }
 
 // ValidRoles lists every assignable role, in ascending privilege order.
-var ValidRoles = []string{"viewer", "editor", "admin", "owner"}
+var ValidRoles = []string{"supervisor", "viewer", "editor", "admin", "owner"}
+
+// SupervisorPaths are the only routes a supervisor reaches: their own
+// session and WhatsApp, and the staff of their sites.
+var SupervisorPaths = []string{"/auth/", "/account/me/", "/workforce/"}
 
 // IsValidRole reports whether role is one of the known roles.
 func IsValidRole(role string) bool {

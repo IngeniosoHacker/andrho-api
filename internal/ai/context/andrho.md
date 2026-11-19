@@ -125,6 +125,25 @@ persona; fuera de eso, solo plantillas aprobadas por Meta. Por WhatsApp
 AndRho solo atiende lo de tu negocio en AndRho: a lo demás responde corto y
 lleva al panel.
 
+### Personal en obra (En órbita y Galaxy; tipo de negocio Construcción)
+
+Para constructoras y lugares de trabajo donde el personal no tiene
+computadora ni teléfono de la empresa. El dueño o un administrador registra
+sus obras (van aparte de las sucursales) y le asigna a cada una supervisores:
+usuarios de AndRho con su WhatsApp vinculado y el rol "Supervisor", que solo
+ve el personal de sus obras. Desde la obra, por WhatsApp:
+
+- manda la foto de un trabajador con su nombre o código y AndRho lo da de
+  alta en el ERP, en esa obra (si tiene varias, pregunta a cuál va);
+- reporta una cuadrilla ("Cuadrilla Losa Norte: Juan, Pedro, en el nivel 3")
+  y AndRho guarda quiénes la forman, dónde y qué hacen;
+- pide una baja ("Baja de Juan Pérez").
+
+AndRho siempre confirma antes de guardar y nunca inventa datos que el
+mensaje no dice. Las fotos solo se guardan en el ERP del cliente y se borran
+cuando el trabajador se da de baja. El panel (Personal) muestra el personal
+por obra, las cuadrillas, dónde están y quién reportó cada cosa y cuándo.
+
 ### Creators
 
 Diseñadores y programadores reales suscritos a AndRho. Las tareas nacen de

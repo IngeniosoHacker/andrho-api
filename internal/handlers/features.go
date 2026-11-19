@@ -127,6 +127,9 @@ func (h *Handler) accountFeatures(ctx context.Context, accountID string) map[str
 	if st, err := h.liveWhatsAppFeature(ctx, accountID); err == nil {
 		out[featureLiveWhatsApp] = st
 	}
+	if st, err := h.workforceFeature(ctx, accountID); err == nil {
+		out[featureWorkforce] = st
+	}
 	return out
 }
 
@@ -158,6 +161,10 @@ func (h *Handler) SetAccountFeature(c *gin.Context) {
 	feature := c.Param("feature")
 	if feature == featureLiveCRM || feature == featureLiveWhatsApp {
 		h.setSubFeature(c, feature)
+		return
+	}
+	if feature == featureWorkforce {
+		h.setWorkforceFeature(c)
 		return
 	}
 	if feature != featureLiveSale {
@@ -229,5 +236,34 @@ func (h *Handler) setSubFeature(c *gin.Context, feature string) {
 	}
 	label := map[bool]string{true: "activado", false: "desactivado"}[*req.Enabled]
 	_ = db.LogEvent(ctx, h.Accounts, uuid.NewString(), claims.AccountID, &claims.Sub, "feature_changed", featureLabels[feature]+" "+label)
+	c.JSON(http.StatusOK, gin.H{"features": h.accountFeatures(ctx, claims.AccountID)})
+}
+
+// setWorkforceFeature turns Personal en obra on or off (plan permitting).
+func (h *Handler) setWorkforceFeature(c *gin.Context) {
+	claims, _ := currentClaims(c)
+	var req struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.Enabled == nil {
+		respondError(c, http.StatusBadRequest, "enabled es obligatorio")
+		return
+	}
+	ctx := c.Request.Context()
+	st, err := h.workforceFeature(ctx, claims.AccountID)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if *req.Enabled && !st.Available {
+		c.JSON(http.StatusForbidden, gin.H{"error": "plan", "message": "Personal en obra viene en los planes En órbita y Galaxy."})
+		return
+	}
+	if err := db.SetFeature(ctx, h.Accounts, claims.AccountID, featureWorkforce, *req.Enabled); err != nil {
+		respondError(c, http.StatusInternalServerError, "internal error")
+		return
+	}
+	label := map[bool]string{true: "activado", false: "desactivado"}[*req.Enabled]
+	_ = db.LogEvent(ctx, h.Accounts, uuid.NewString(), claims.AccountID, &claims.Sub, "feature_changed", "Personal en obra "+label)
 	c.JSON(http.StatusOK, gin.H{"features": h.accountFeatures(ctx, claims.AccountID)})
 }
