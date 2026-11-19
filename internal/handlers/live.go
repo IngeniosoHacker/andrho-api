@@ -23,6 +23,7 @@ import (
 	"github.com/IngeniosoHacker/andrho-api/internal/db"
 	"github.com/IngeniosoHacker/andrho-api/internal/live"
 	"github.com/IngeniosoHacker/andrho-api/internal/meta"
+	"github.com/IngeniosoHacker/andrho-api/internal/whatsapp"
 	"github.com/IngeniosoHacker/andrho-api/internal/odoo"
 )
 
@@ -911,12 +912,29 @@ func (h *Handler) MetaWebhook(c *gin.Context) {
 		c.Status(http.StatusForbidden)
 		return
 	}
-	var wh meta.Webhook
-	if err := jsonUnmarshal(body, &wh); err != nil || wh.Object != "page" {
+	var obj struct {
+		Object string `json:"object"`
+	}
+	if err := jsonUnmarshal(body, &obj); err != nil {
 		c.Status(http.StatusOK)
 		return
 	}
 	c.Status(http.StatusOK)
+	if obj.Object == "whatsapp_business_account" {
+		var wh whatsapp.Webhook
+		if jsonUnmarshal(body, &wh) == nil {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+				defer cancel()
+				h.handleWhatsApp(ctx, wh)
+			}()
+		}
+		return
+	}
+	var wh meta.Webhook
+	if err := jsonUnmarshal(body, &wh); err != nil || wh.Object != "page" {
+		return
+	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()

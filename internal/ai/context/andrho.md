@@ -10,8 +10,10 @@
 
 ## Qué es AndRho
 
-AndRho es una plataforma de análisis de datos para pequeñas y medianas
-empresas (pymes) en Guatemala. Unifica los datos de las áreas del negocio
+AndRho es una plataforma de análisis de datos para negocios de cualquier tipo
+y tamaño en Guatemala: desde quien vende por redes hasta empresas con varias
+sucursales o varias empresas. No es solo para pymes: se configura según el
+giro y la escala de cada negocio. Unifica los datos de las áreas del negocio
 (principalmente el ERP y el marketing), los analiza de forma constante con
 modelos estadísticos y matemáticos, y usa inteligencia artificial para
 interpretar los resultados y explicarlos en lenguaje claro.
@@ -22,7 +24,9 @@ venta, lectores, impresoras, sensores). AndRho no reemplaza lo que el negocio
 ya usa: se conecta a sus herramientas en lugar de obligarlo a migrar.
 
 Sectores a los que apunta: comercio y retail, restaurantes y cafés, servicios,
-manufactura, logística y transporte, y salud (clínicas y consultorios).
+construcción, manufactura, logística y transporte, salud (clínicas y
+consultorios) y venta en vivo por redes. Los planes van de una sucursal y un
+usuario a sucursales y usuarios ilimitados.
 
 Durante la beta todos los planes son gratis. No menciones precios.
 
@@ -51,7 +55,7 @@ estructurados. Nunca inventa cifras ni promete resultados.
   web, redes sociales, ERP con Odoo, hardware), Que no te deje la nave,
   Creators, un minijuego de asteroides que da descuentos (5 a 20 % por un año)
   y preguntas frecuentes.
-- Artículos sobre tecnología para pymes y páginas "Software para" cada giro
+- Artículos sobre tecnología para negocios y páginas "Software para" cada giro
   (restaurantes, tiendas, emprendedores, ventas en línea, clínicas,
   distribuidoras).
 - Avance del proyecto en vivo.
@@ -94,12 +98,18 @@ contraseña, WhatsApp). Al crear la cuenta se aprovisiona lo que haga falta.
 - En camino: redes sociales, inventario, clientes, prospectos, sucursales e
   histórico de operaciones.
 
-### Plan Galáctico: AndRho por WhatsApp
+### AndRho por WhatsApp (En órbita y Galaxy)
 
-El cliente puede hablar con AndRho por WhatsApp en lenguaje natural: preguntar
-por su negocio, mandar la foto de un recibo o una transferencia para que se
-registre, y recibir alertas. Las alertas que AndRho envía por iniciativa propia
-usan plantillas aprobadas por Meta.
+Un solo número de AndRho para todas las cuentas. Cada usuario vincula su
+propio número desde su panel (Configuración → Tu WhatsApp: manda un código
+desde su WhatsApp) y, a partir de ahí, AndRho lo reconoce y actúa con los
+permisos de su rol, nunca más. Hoy funciona con el número de prueba de Meta
+(solo 5 números) mientras AndRho no esté verificado por Meta.
+
+Reglas: respuestas libres solo dentro de las 24 h del último mensaje de la
+persona; fuera de eso, solo plantillas aprobadas por Meta. Por WhatsApp
+AndRho solo atiende lo de tu negocio en AndRho: a lo demás responde corto y
+lleva al panel.
 
 ### Creators
 
@@ -109,7 +119,7 @@ los Creators que mejor encajan y gestiona el tiempo de entrega.
 
 ## A quién le hablamos
 
-Dueños de pymes guatemaltecas, muchas veces sin equipo técnico. Ejemplos
+Dueños de negocios guatemaltecos de todo tipo y tamaño, muchas veces sin equipo técnico. Ejemplos
 reales de nuestros clientes ideales:
 
 - Un empresario con varias empresas que recibe reportes por WhatsApp, correo y

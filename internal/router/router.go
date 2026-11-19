@@ -107,6 +107,11 @@ func New(h *handlers.Handler) *gin.Engine {
 		// Features by account: on only when the plan has them and the
 		// business uses them (live sales: en_vivo, or turned on here).
 		accountGroup.PUT("/features/:feature", middleware.RequireRole("admin"), h.SetAccountFeature)
+		// AndRho's WhatsApp: each user links their own number (a code they
+		// send from it), then talks to AndRho with their role's permissions.
+		accountGroup.GET("/me/whatsapp", h.MyWhatsApp)
+		accountGroup.POST("/me/whatsapp/link", h.LinkMyWhatsApp)
+		accountGroup.DELETE("/me/whatsapp", h.UnlinkMyWhatsApp)
 	}
 
 	// Suggestions -- the per-view "Sugerencias" button and the global

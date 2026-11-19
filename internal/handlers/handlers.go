@@ -14,6 +14,7 @@ import (
 	"github.com/IngeniosoHacker/andrho-api/internal/config"
 	"github.com/IngeniosoHacker/andrho-api/internal/db"
 	"github.com/IngeniosoHacker/andrho-api/internal/meta"
+	"github.com/IngeniosoHacker/andrho-api/internal/whatsapp"
 	"github.com/IngeniosoHacker/andrho-api/internal/notify"
 	"github.com/IngeniosoHacker/andrho-api/internal/provision"
 	"github.com/IngeniosoHacker/andrho-api/internal/rstats"
@@ -40,13 +41,17 @@ type Handler struct {
 	// Meta is AndRho's Meta app (venta en vivo); Enabled() is false until
 	// META_APP_ID and META_APP_SECRET are set.
 	Meta *meta.Client
+	// WA is AndRho's own WhatsApp number (internal/whatsapp); Enabled() is
+	// false until WHATSAPP_ENABLED=true with its token and phone number id.
+	WA *whatsapp.Client
 }
 
 // New builds a Handler. AI calls record their tokens in token_usage. A bad
 // VPS configuration (key or host key that don't parse) is an error.
 func New(accounts, tracker *pgxpool.Pool, rdb *redis.Client, cfg *config.Config) (*Handler, error) {
 	h := &Handler{Accounts: accounts, Tracker: tracker, Redis: rdb, Cfg: cfg,
-		Meta: meta.New(cfg.MetaAppID, cfg.MetaAppSecret, cfg.MetaGraphVersion, cfg.MetaLoginConfigID)}
+		Meta: meta.New(cfg.MetaAppID, cfg.MetaAppSecret, cfg.MetaGraphVersion, cfg.MetaLoginConfigID),
+		WA:   whatsapp.New(cfg.WhatsAppEnabled, cfg.WhatsAppToken, cfg.WhatsAppPhoneNumberID, cfg.WhatsAppWABAID, cfg.MetaGraphVersion)}
 	box, err := secret.New(cfg.SecretsKey)
 	if err != nil {
 		return nil, err

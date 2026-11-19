@@ -580,3 +580,36 @@ CREATE TABLE IF NOT EXISTS account_features (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (account_id, feature)
 );
+
+-- AndRho's WhatsApp (internal/whatsapp): the control channel. A user links
+-- their number by sending, from it, a code the dashboard shows
+-- (wa_link_codes, kept as a hash, 15 minutes). One number belongs to one
+-- user: messages are routed by it.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS whatsapp_phone TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS whatsapp_verified_at TIMESTAMPTZ;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_whatsapp ON users (whatsapp_phone) WHERE whatsapp_phone <> '';
+
+CREATE TABLE IF NOT EXISTS wa_link_codes (
+  code_hash  TEXT PRIMARY KEY,
+  user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_wa_link_codes_user ON wa_link_codes (user_id);
+
+-- The last message from each number: free-form replies only within 24 h.
+CREATE TABLE IF NOT EXISTS wa_inbound (
+  phone   TEXT PRIMARY KEY,
+  last_at TIMESTAMPTZ NOT NULL
+);
+
+-- What AndRho waits for from a number (a confirmation, a choice): kind says
+-- which feature owns it, data its state. Expired rows are ignored.
+CREATE TABLE IF NOT EXISTS wa_sessions (
+  phone      TEXT PRIMARY KEY,
+  account_id UUID REFERENCES accounts(id) ON DELETE CASCADE,
+  kind       TEXT NOT NULL,
+  data       JSONB NOT NULL DEFAULT '{}',
+  expires_at TIMESTAMPTZ NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

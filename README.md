@@ -81,6 +81,10 @@ already owns and migrates its own schema.
 | `META_GRAPH_VERSION`        | `v27.0` | Graph API version. |
 | `META_LOGIN_CONFIG_ID`      | — | The Facebook Login for Business configuration id (founder/meta-cuenta-oficial.md §5). Needed in production: the app uses Login for Business, which WhatsApp Embedded Signup also requires. Without it the dialog asks for the permissions by name (classic Login, development only). |
 | `LIVE_CONFIRM_MINUTES`      | `15` | How long a buyer has to tap "Sí" before the item goes to the next person who commented it. |
+| `WHATSAPP_ENABLED`          | `false` | Turns AndRho's own WhatsApp number on (`internal/whatsapp`). Off, nothing is sent or read. |
+| `WHATSAPP_TOKEN`            | — | A System User's permanent token with `whatsapp_business_messaging` (founder/meta-cuenta-oficial.md §8). Secret. |
+| `WHATSAPP_PHONE_NUMBER_ID`  | — | The phone number id of AndRho's number (today: Meta's Cloud API test number). |
+| `WHATSAPP_BUSINESS_ACCOUNT_ID` | — | The WhatsApp Business Account id (templates). |
 
 In development, a `.env` file is loaded automatically (via `godotenv`) if
 present; its absence is not an error. In production (Railway), env vars are
@@ -434,6 +438,26 @@ rules (`internal/live`):
 
 End-to-end test (real Postgres and Odoo, fake Graph API):
 `LIVE_IT_PG=… LIVE_IT_ODOO=… LIVE_IT_ODOO_DB=… go test -tags integration -run TestLiveEndToEnd ./internal/handlers/`.
+
+### AndRho's WhatsApp: `/account/me/whatsapp` and `POST /meta/webhook`
+
+One WhatsApp number for every account (`internal/whatsapp`), behind
+`WHATSAPP_ENABLED`. Its webhook is the same `/meta/webhook` (same app and
+signature); messages for `whatsapp_business_account` go through
+`waRoutes` in order (`internal/handlers/whatsapp.go`).
+
+- `POST /account/me/whatsapp/link` gives the user a code (15 min, stored as
+  a hash) and a wa.me link with "Vincular AndRho <code>" typed; sending it
+  from their WhatsApp links that number to them (`users.whatsapp_phone`, one
+  user per number). `GET /account/me/whatsapp` (masked number),
+  `DELETE /account/me/whatsapp`.
+- A linked user acts with their own role; a number nobody linked gets a
+  short pointer to the dashboard. Outside AndRho's business, a short answer
+  and a redirect (Meta's AI policy).
+- `wa_inbound` keeps each number's last message: free-form replies only
+  within 24 h; outside, only approved templates. `wa_sessions` holds what
+  AndRho waits for from a number (confirmations).
+- With Meta's test number only the 5 verified recipients get messages.
 
 ### Team presence and preferences
 

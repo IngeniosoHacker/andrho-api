@@ -637,7 +637,7 @@ func spanishWeekday(d time.Weekday) string {
 // Translation (Claude)
 // ---------------------------------------------------------------------
 
-const translateSystem = `Eres AndRho, el analista de datos de una pyme en Guatemala. Recibes hallazgos ya calculados con estadística.
+const translateSystem = `Eres AndRho, el analista de datos de un negocio en Guatemala. Recibes hallazgos ya calculados con estadística.
 Tu trabajo es explicarlos al dueño del negocio en español claro, cálido y directo, sin tecnicismos ni inventar números.
 Nunca menciones términos estadísticos (ANOVA, p, F, Tukey, regresión, eta, significancia, varianza): di qué pasa y qué hacer.
 Devuelve {"resumen": "2 o 3 frases con lo más importante", "sugerencias": [{"base": índice (desde 0) de la propuesta en la que se basa o -1, "titulo": "acción concreta en menos de 8 palabras", "cuerpo": "qué hacer y por qué, en 1 o 2 frases", "evidencia": "el dato que la respalda"}]} con 0 a 3 sugerencias basadas solo en los hallazgos y las propuestas.`

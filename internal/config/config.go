@@ -58,6 +58,13 @@ type Config struct {
 	// LiveConfirmMinutes: how long a buyer has to tap "Sí" before the item
 	// goes to the next person who commented it.
 	LiveConfirmMinutes int
+	// AndRho's own WhatsApp number (internal/whatsapp): the control channel
+	// and, until AndRho is a Tech Provider, the test stand-in for a store's
+	// number. Off unless WHATSAPP_ENABLED=true and the token and phone
+	// number id are set. Its webhook is the same /meta/webhook (same app,
+	// same META_APP_SECRET and META_VERIFY_TOKEN).
+	WhatsAppEnabled                                       bool
+	WhatsAppToken, WhatsAppPhoneNumberID, WhatsAppWABAID string
 }
 
 // Load reads a .env file if present (silently ignored when missing, since in
@@ -100,6 +107,10 @@ func Load() *Config {
 		MetaLoginConfigID:   getEnv("META_LOGIN_CONFIG_ID", ""),
 		PublicURL:           strings.TrimRight(getEnv("API_PUBLIC_URL", ""), "/"),
 		LiveConfirmMinutes:  getEnvInt("LIVE_CONFIRM_MINUTES", 15),
+		WhatsAppEnabled:       getEnv("WHATSAPP_ENABLED", "") == "true",
+		WhatsAppToken:         getEnv("WHATSAPP_TOKEN", ""),
+		WhatsAppPhoneNumberID: getEnv("WHATSAPP_PHONE_NUMBER_ID", ""),
+		WhatsAppWABAID:        getEnv("WHATSAPP_BUSINESS_ACCOUNT_ID", ""),
 	}
 	if cfg.SecretsKey == "" {
 		log.Println("config: SECRETS_KEY is not set, stored credentials are encrypted with a key derived from JWT_SECRET")
