@@ -35,7 +35,7 @@ type waRoute func(ctx context.Context, m whatsapp.Message) bool
 
 // waRoutes, in order. Features add theirs before waKnownUser.
 func (h *Handler) waRoutes() []waRoute {
-	return []waRoute{h.waLinkUser, h.waKnownUser}
+	return []waRoute{h.waLinkUser, h.waWorkforce, h.waKnownUser}
 }
 
 // handleWhatsApp handles a WhatsApp webhook (after the signature check).

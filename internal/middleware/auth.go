@@ -36,6 +36,10 @@ func RequireAuth(jwtSecret string) gin.HandlerFunc {
 			return
 		}
 
+		if claims.Role == "supervisor" && !supervisorAllowed(c.Request.URL.Path) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+			return
+		}
 		c.Set(AccountContextKey, claims)
 		c.Next()
 	}
@@ -62,4 +66,14 @@ func RequireRole(min string) gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+// supervisorAllowed: a supervisor only reaches auth.SupervisorPaths.
+func supervisorAllowed(path string) bool {
+	for _, p := range auth.SupervisorPaths {
+		if strings.HasPrefix(path, p) {
+			return true
+		}
+	}
+	return false
 }

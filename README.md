@@ -459,6 +459,34 @@ signature); messages for `whatsapp_business_account` go through
   AndRho waits for from a number (confirmations).
 - With Meta's test number only the 5 verified recipients get messages.
 
+### Personal en obra: `/workforce/*` (En órbita and Galaxy)
+
+For construction companies (sites without computers or company phones).
+Capability `workforce` (plans with the WhatsApp control channel: En órbita
+and Galaxy); feature `workforce`, on by default for business type
+`construccion` (`PUT /account/features/workforce`). The ERP side is
+`andrho_workforce` (`andrho_odoo` repo).
+
+- Work sites (obras) are apart from the branches: `work_sites` and
+  `work_site_supervisors`, mirrored in the ERP as `hr.work.location`.
+  `POST /workforce/setup` (installs the module), `POST /workforce/sites`,
+  `PUT /workforce/sites/:id`, `PUT /workforce/sites/:id/supervisors`,
+  `PUT /workforce/settings {id_mode: name|code|both}` (admin).
+- Role `supervisor` (outside the ranking): reaches only `/auth/*`,
+  `/account/me/*` and `/workforce/*`, and only the sites assigned to them.
+- By WhatsApp (`waWorkforce`): a photo with the name or code registers or
+  updates the worker (`hr.employee`) at the site, asking which site when
+  there are several and what's missing; "Cuadrilla X: A, B, en el nivel 3"
+  reports a crew (members must exist at the site; Claude reads free text
+  and anything it returns that isn't in the message is dropped); "Baja de X"
+  archives the worker. Nothing is saved before the supervisor confirms.
+- Photos go from Meta to the ERP in memory only: no copy in AndRho, never
+  sent to Claude, erased from the ERP when the worker leaves.
+- `GET /workforce/staff`: staff by site, crews, where they work, who
+  reported each thing and when. `POST /workforce/employees/:id/terminate`.
+
+End-to-end test: `LIVE_IT_PG=… LIVE_IT_ODOO=… WF_IT_ODOO_DB=… go test -tags integration -run TestWorkforceEndToEnd ./internal/handlers/`.
+
 ### Team presence and preferences
 
 `PATCH /account/me/status {status, note}` (disponible, almorzando,

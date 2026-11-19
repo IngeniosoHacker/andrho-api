@@ -37,6 +37,10 @@ type Capabilities struct {
 	WhatsApp         string `json:"whatsapp"`
 	WhatsAppCommands int    `json:"whatsapp_commands"`
 	OwnNumber        bool   `json:"own_number"` // número de WhatsApp propio
+	// Workforce: personal en obra (andrho_workforce). Supervisors register
+	// workers and crews by WhatsApp, so it comes with the WhatsApp control
+	// channel: En órbita and Galaxy.
+	Workforce bool `json:"workforce"`
 	// Sitio web y SEO, as flags (todo.md A4.6). Only En órbita (tienda) and
 	// Galaxy (pro) include one; any other plan buys it (site.go):
 	//   Website  = sitio + SEO básico (robots, sitemap, canonical,
@@ -90,10 +94,10 @@ var catalog = []Plan{
 		Caps: Capabilities{FEL: true, LiveSale: true, Branches: 3, Users: 6, Social: true, WhatsApp: "avisos", CreatorTasks: 1, Support: "chat",
 			Suggestions: 10, ModuleLimit: 3}},
 	{ID: "en_orbita", Name: "En órbita", Label: "Pro", Price: 1200, Tagline: "Para crecer con cada área conectada.",
-		Caps: Capabilities{FEL: true, LiveSale: true, Branches: 6, Users: 15, Social: true, WhatsApp: "control", WhatsAppCommands: 400, Website: true, Store: true,
+		Caps: Capabilities{FEL: true, LiveSale: true, Branches: 6, Users: 15, Social: true, WhatsApp: "control", WhatsAppCommands: 400, Workforce: true, Website: true, Store: true,
 			CreatorTasks: 2, Support: "chat", LiveSupportHours: 1, Suggestions: 30, ModuleLimit: 6}},
 	{ID: "galaxy", Name: "Galaxy", Label: "Ilimitado", Price: 2990, Tagline: "Tu negocio completo. Nada se queda en tierra.",
-		Caps: Capabilities{FEL: true, LiveSale: true, Branches: Unlimited, Users: Unlimited, Social: true, WhatsApp: "control", WhatsAppCommands: 1500, OwnNumber: true,
+		Caps: Capabilities{FEL: true, LiveSale: true, Branches: Unlimited, Users: Unlimited, Social: true, WhatsApp: "control", WhatsAppCommands: 1500, OwnNumber: true, Workforce: true,
 			Website: true, Store: true, FullSite: true, CreatorTasks: 4, Support: "chat", LiveSupportHours: 2,
 			Suggestions: Unlimited, ModuleLimit: Unlimited}},
 }

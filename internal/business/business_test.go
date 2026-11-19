@@ -21,6 +21,8 @@ func TestClassify(t *testing.T) {
 		{nil, "Una ferretería en Mixco", "ventas"},
 		{nil, "", ""},
 		{[]string{"manufactura"}, "fábrica de muebles", ""}, // sectors given: description not used
+		{[]string{"servicios"}, "Somos una constructora con tres obras en Mixco", "construccion"},
+		{nil, "Hacemos remodelaciones y obra gris", "construccion"},
 	}
 	for _, c := range cases {
 		if got := Classify(c.sectors, c.desc); got != c.want {

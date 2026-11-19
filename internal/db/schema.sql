@@ -613,3 +613,25 @@ CREATE TABLE IF NOT EXISTS wa_sessions (
   expires_at TIMESTAMPTZ NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Personal en obra (internal/handlers/workforce.go): the account's work
+-- sites (obras), apart from its branches, and the supervisors of each one.
+-- The ERP mirrors each site as an hr.work.location (odoo_location_id);
+-- the workers, their photos and the crews live only in the ERP.
+CREATE TABLE IF NOT EXISTS work_sites (
+  id               UUID PRIMARY KEY,
+  account_id       UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  name             TEXT NOT NULL,
+  odoo_location_id INTEGER NOT NULL DEFAULT 0,
+  active           BOOLEAN NOT NULL DEFAULT true,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_work_sites_account ON work_sites (account_id);
+
+CREATE TABLE IF NOT EXISTS work_site_supervisors (
+  site_id UUID NOT NULL REFERENCES work_sites(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (site_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_work_site_supervisors_user ON work_site_supervisors (user_id);
