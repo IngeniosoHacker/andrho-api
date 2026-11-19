@@ -31,16 +31,20 @@ import (
 	"github.com/IngeniosoHacker/andrho-api/internal/auth"
 	"github.com/IngeniosoHacker/andrho-api/internal/config"
 	"github.com/IngeniosoHacker/andrho-api/internal/db"
+	"github.com/IngeniosoHacker/andrho-api/internal/live"
 	"github.com/IngeniosoHacker/andrho-api/internal/meta"
 	"github.com/IngeniosoHacker/andrho-api/internal/middleware"
 	"github.com/IngeniosoHacker/andrho-api/internal/odoo"
 	"github.com/IngeniosoHacker/andrho-api/internal/secret"
+	"github.com/IngeniosoHacker/andrho-api/internal/whatsapp"
 )
 
 // fakeGraph records what AndRho sends to Meta and serves a live's comments.
 type fakeGraph struct {
 	mu       sync.Mutex
-	sent     []map[string]any // /messages bodies
+	sent     []map[string]any // /messages bodies (Messenger)
+	wa       []map[string]any // WhatsApp Cloud API bodies (no read receipts)
+	reacts   []map[string]any
 	comments []map[string]any
 	posts    int
 	deleted  []string
@@ -55,8 +59,20 @@ func (f *fakeGraph) handler(w http.ResponseWriter, r *http.Request) {
 	case strings.HasSuffix(r.URL.Path, "/messages"):
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["messaging_product"] == "whatsapp" {
+			if body["status"] == nil {
+				f.wa = append(f.wa, body)
+			}
+			w.Write([]byte(`{"messages":[{"id":"wamid.x"}]}`))
+			return
+		}
 		f.sent = append(f.sent, body)
 		w.Write([]byte(`{"message_id":"m"}`))
+	case strings.HasSuffix(r.URL.Path, "/PN"):
+		w.Write([]byte(`{"display_phone_number":"+1 555-000-1111"}`))
+	case strings.HasSuffix(r.URL.Path, "/reactions"):
+		b, _ := json.Marshal(map[string]any{"data": f.reacts})
+		w.Write(b)
 	case strings.HasSuffix(r.URL.Path, "/live_videos"):
 		w.Write([]byte(`{"data":[{"id":"LIVE1","status":"LIVE","permalink_url":"https://facebook.com/p/videos/1"}]}`))
 	case strings.HasSuffix(r.URL.Path, "/comments"):
@@ -92,6 +108,37 @@ func (f *fakeGraph) lastText(t *testing.T) string {
 	return m["attachment"].(map[string]any)["payload"].(map[string]any)["text"].(string)
 }
 
+// lastButtons are the buttons of the last Messenger message.
+func (f *fakeGraph) lastButtons(t *testing.T) []map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	m := f.sent[len(f.sent)-1]["message"].(map[string]any)
+	out := []map[string]any{}
+	for _, b := range m["attachment"].(map[string]any)["payload"].(map[string]any)["buttons"].([]any) {
+		out = append(out, b.(map[string]any))
+	}
+	return out
+}
+
+// lastWA is the last WhatsApp message: its text and its button ids.
+func (f *fakeGraph) lastWA(t *testing.T) (string, []string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.wa) == 0 {
+		t.Fatal("nothing sent to WhatsApp")
+	}
+	m := f.wa[len(f.wa)-1]
+	if tx, ok := m["text"].(map[string]any); ok {
+		return tx["body"].(string), nil
+	}
+	in := m["interactive"].(map[string]any)
+	ids := []string{}
+	for _, b := range in["action"].(map[string]any)["buttons"].([]any) {
+		ids = append(ids, b.(map[string]any)["reply"].(map[string]any)["id"].(string))
+	}
+	return in["body"].(map[string]any)["text"].(string), ids
+}
+
 func TestLiveEndToEnd(t *testing.T) {
 	pgURL, odooURL, odooDB := os.Getenv("LIVE_IT_PG"), os.Getenv("LIVE_IT_ODOO"), os.Getenv("LIVE_IT_ODOO_DB")
 	if pgURL == "" || odooURL == "" {
@@ -109,10 +156,13 @@ func TestLiveEndToEnd(t *testing.T) {
 	gs := httptest.NewServer(http.HandlerFunc(graph.handler))
 	defer gs.Close()
 	box, _ := secret.New("integration-secret-key-0123456789")
-	cfg := &config.Config{JWTSecret: "jwt-secret", LiveConfirmMinutes: 15, MetaAppSecret: "appsecret", MetaVerifyToken: "vt"}
-	h := &Handler{Accounts: pool, Cfg: cfg, Secrets: box, Meta: meta.New("app", "appsecret", "v27.0", "")}
+	cfg := &config.Config{JWTSecret: "jwt-secret", LiveConfirmMinutes: 15, MetaAppSecret: "appsecret", MetaVerifyToken: "vt", LiveWhatsAppTest: true}
+	h := &Handler{Accounts: pool, Cfg: cfg, Secrets: box, Meta: meta.New("app", "appsecret", "v27.0", ""),
+		WA: whatsapp.New(true, "watoken", "PN", "WABA", "v27.0")}
 	h.Meta.Graph = gs.URL
+	h.WA.Graph = gs.URL
 	livePoll = 200 * time.Millisecond
+	liveStatusEvery = 400 * time.Millisecond
 
 	accountID := uuid.NewString()
 	run := accountID[:8] // comment ids are unique across runs on the same database
@@ -205,6 +255,16 @@ func TestLiveEndToEnd(t *testing.T) {
 	if st["enabled"] != true || st["erp"] != "ready" {
 		t.Fatalf("status %v", st)
 	}
+	// CRM: on by default; the WhatsApp button is turned on by hand, and
+	// reactions count as prospects only because the seller asks.
+	feats := call("PUT", "/account/features/live_whatsapp", map[string]any{"enabled": true})["features"].(map[string]any)
+	if feats["live_crm"].(map[string]any)["enabled"] != true || feats["live_whatsapp"].(map[string]any)["enabled"] != true {
+		t.Fatalf("features %v", feats)
+	}
+	call("PUT", "/live/settings", map[string]string{"capture_reactions": "1", "privacy_url": "https://tienda.example/privacidad"})
+	graph.mu.Lock()
+	graph.reacts = []map[string]any{{"id": cid("U9"), "name": "Marta Reacciona", "type": "LOVE"}}
+	graph.mu.Unlock()
 	// The seller's word for the posts: "Apartado" instead of "mío".
 	if set := call("PUT", "/live/settings", map[string]string{"claim_word": "Apartado"}); set["claim_word"] != "Apartado" {
 		t.Fatalf("claim word %v", set)
@@ -243,8 +303,11 @@ func TestLiveEndToEnd(t *testing.T) {
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
-	if got := graph.lastText(t); got != "¿Confirmas la compra de blusa roja 2 por Q85?" {
+	if got := graph.lastText(t); got != live.ConfirmWithConsent("blusa roja 2", 85) {
 		t.Fatalf("private reply %q", got)
+	}
+	if bs := graph.lastButtons(t); len(bs) != 3 || bs[2]["type"] != "web_url" || !strings.HasPrefix(bs[2]["url"].(string), "https://wa.me/15550001111?text=Pedido+AR-") {
+		t.Fatalf("buttons %v", bs)
 	}
 	claims, _ := db.ListSessionClaims(ctx, pool, sessID, 10)
 	var asked, queued db.LiveClaim
@@ -263,7 +326,7 @@ func TestLiveEndToEnd(t *testing.T) {
 	// Ana says no: the blusa goes to Luis.
 	page, _ := h.pageFor(ctx, "PAGE1")
 	h.livePostback(ctx, page, "PSID-ANA", "LS_NO:"+itoa(asked.ID))
-	if got := graph.lastText(t); got != "¿Confirmas la compra de blusa roja 2 por Q85?" {
+	if got := graph.lastText(t); got != live.ConfirmWithConsent("blusa roja 2", 85) {
 		t.Fatalf("second ask %q", got)
 	}
 	luis, _ := db.GetLiveClaim(ctx, pool, queued.ID)
@@ -277,7 +340,12 @@ func TestLiveEndToEnd(t *testing.T) {
 	}
 	h.liveText(ctx, page, "PSID-LUIS", "mi numero es 5555 1234")
 	h.liveText(ctx, page, "PSID-LUIS", "5a calle 1-23, zona 1")
-	if got := graph.lastText(t); got != "¡Gracias! Tu pedido está confirmado. Te avisamos cuando salga tu envío." {
+	// Right before closing: which channel does he prefer?
+	if got := graph.lastText(t); got != live.AskChannel {
+		t.Fatalf("channel question %q", got)
+	}
+	h.livePostback(ctx, page, "PSID-LUIS", live.PayloadChannelMS+itoa(luis.ID))
+	if got := graph.lastText(t); got != live.ChannelSavedMessenger+" "+live.DoneWith("https://tienda.example/privacidad") {
 		t.Fatalf("done %q", got)
 	}
 	cards := call("GET", "/live/cards?state=ready", nil)["cards"].([]any)
@@ -330,7 +398,88 @@ func TestLiveEndToEnd(t *testing.T) {
 	if _, err := claimByComment(ctx, pool, cid("pc1")); err == nil {
 		t.Fatal("'Mío' must be ignored once the word is 'Apartado'")
 	}
-	h.livePostback(ctx, page, "PSID-ROSA", "LS_YES:"+itoa(rosa.ID))
+	// Rosa answers through WhatsApp: the button types "Pedido AR-XXXX".
+	waURL := graph.lastButtons(t)[2]["url"].(string)
+	code := live.OrderCode(strings.ReplaceAll(waURL, "+", " "))
+	if code == "" {
+		t.Fatalf("no code in %q", waURL)
+	}
+	sendWA := func(msg map[string]any) {
+		msg["from"], msg["id"], msg["timestamp"] = "50255559999", uuid.NewString(), strconv.FormatInt(time.Now().Unix(), 10)
+		body := map[string]any{"object": "whatsapp_business_account", "entry": []any{map[string]any{"id": "WABA", "changes": []any{
+			map[string]any{"field": "messages", "value": map[string]any{"messaging_product": "whatsapp",
+				"metadata": map[string]any{"phone_number_id": "PN", "display_phone_number": "15550001111"},
+				"contacts": []any{map[string]any{"wa_id": "50255559999", "profile": map[string]any{"name": "Rosa"}}},
+				"messages": []any{msg}}}}}}}
+		raw, _ := json.Marshal(body)
+		mac := hmac.New(sha256.New, []byte("appsecret"))
+		mac.Write(raw)
+		req := httptest.NewRequest("POST", "/meta/webhook", bytes.NewReader(raw))
+		req.Header.Set("X-Hub-Signature-256", "sha256="+hex.EncodeToString(mac.Sum(nil)))
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != 200 {
+			t.Fatalf("wa webhook %d", rec.Code)
+		}
+		time.Sleep(700 * time.Millisecond) // handled in the background
+	}
+	sendWA(map[string]any{"type": "text", "text": map[string]any{"body": "Pedido " + code}})
+	txt, ids := graph.lastWA(t)
+	if !strings.HasPrefix(txt, live.WhatsAppLinked) || len(ids) != 2 || ids[0] != live.PayloadYes+itoa(rosa.ID) {
+		t.Fatalf("wa confirm %q %v", txt, ids)
+	}
+	sendWA(map[string]any{"type": "interactive", "interactive": map[string]any{"type": "button_reply", "button_reply": map[string]any{"id": ids[0], "title": "Sí"}}})
+	if txt, _ = graph.lastWA(t); !strings.HasPrefix(txt, "¡Listo, Rosa!") {
+		t.Fatalf("wa after yes %q", txt)
+	}
+	sendWA(map[string]any{"type": "text", "text": map[string]any{"body": "4444 1234"}})
+	sendWA(map[string]any{"type": "text", "text": map[string]any{"body": "Avenida Reforma 10-10, zona 10"}})
+	txt, ids = graph.lastWA(t)
+	if txt != live.AskChannel || len(ids) != 2 {
+		t.Fatalf("wa channel question %q %v", txt, ids)
+	}
+	sendWA(map[string]any{"type": "interactive", "interactive": map[string]any{"type": "button_reply", "button_reply": map[string]any{"id": ids[0], "title": "WhatsApp"}}})
+	if txt, _ = graph.lastWA(t); !strings.HasPrefix(txt, live.ChannelSavedWhatsApp) {
+		t.Fatalf("wa channel saved %q", txt)
+	}
+	// Someone else sending Rosa's code gets nothing of hers.
+	graph.mu.Lock()
+	before := len(graph.wa)
+	graph.mu.Unlock()
+	rosa, _ = db.GetLiveClaim(ctx, pool, rosa.ID)
+	var rb []map[string]any
+	_ = cl.SearchRead(ctx, "andrho.live.buyer", []any{[]any{"id", "=", rosa.BuyerID}}, []string{"kind", "preferred_channel", "wa_phone", "consent_channel", "psid"}, "", 1, &rb)
+	if len(rb) != 1 || rb[0]["kind"] != "customer" || rb[0]["preferred_channel"] != "whatsapp" || rb[0]["wa_phone"] != "50255559999" || rb[0]["consent_channel"] != "whatsapp" {
+		t.Fatalf("rosa in the erp %v", rb)
+	}
+	_ = before
+
+	// Someone writes to the Page: a prospect.
+	pm := map[string]any{"object": "page", "entry": []any{map[string]any{"id": "PAGE1", "messaging": []any{
+		map[string]any{"sender": map[string]any{"id": cid("PS-NEW")}, "recipient": map[string]any{"id": "PAGE1"}, "message": map[string]any{"mid": "m1", "text": "hola, ¿precio?"}}}}}}
+	raw, _ = json.Marshal(pm)
+	mac = hmac.New(sha256.New, []byte("appsecret"))
+	mac.Write(raw)
+	req = httptest.NewRequest("POST", "/meta/webhook", bytes.NewReader(raw))
+	req.Header.Set("X-Hub-Signature-256", "sha256="+hex.EncodeToString(mac.Sum(nil)))
+	router.ServeHTTP(httptest.NewRecorder(), req)
+	time.Sleep(700 * time.Millisecond)
+
+	// The live's people: Ana and Luis are customers (they named the item),
+	// X and Marta (reaction) prospects.
+	people := call("GET", "/live/sessions/"+sessID+"/people", nil)
+	kinds := map[string]string{}
+	for _, p := range people["people"].([]any) {
+		m := p.(map[string]any)
+		kinds[m["name"].(string)] = m["kind"].(string)
+	}
+	if kinds["ana maría lópez"] != "customer" || kinds["Luis Pérez"] != "customer" || kinds["X"] != "prospect" || kinds["Marta Reacciona"] != "prospect" {
+		t.Fatalf("people %v", kinds)
+	}
+	contacts := call("GET", "/live/contacts", nil)
+	if contacts["prospects"].(float64) < 3 || contacts["channels"].(map[string]any)["whatsapp"].(float64) < 1 {
+		t.Fatalf("contacts %v", contacts)
+	}
 	graph.mu.Lock()
 	deleted := append([]string(nil), graph.deleted...)
 	graph.mu.Unlock()
@@ -374,6 +523,9 @@ func gin_test_router(h *Handler) *gin.Engine {
 	g.GET("/cards", h.LiveCards)
 	g.GET("/metrics", h.LiveMetrics)
 	g.PUT("/settings", h.LiveSaveSettings)
+	g.GET("/sessions/:id/people", h.LivePeople)
+	g.GET("/contacts", h.LiveContacts)
+	r.PUT("/account/features/:feature", auth, h.SetAccountFeature)
 	r.GET("/erp/locate", auth, h.ERPLocate)
 	r.POST("/meta/webhook", h.MetaWebhook)
 	return r

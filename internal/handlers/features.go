@@ -53,11 +53,79 @@ func (h *Handler) liveFeature(ctx context.Context, accountID string) (featureSta
 	return st, nil
 }
 
+// CRM from the lives (2026-11-19), both inside live sales:
+//
+//	live_crm       buyers and prospects in the ERP's contacts; on by
+//	               default while live sales are on
+//	live_whatsapp  the "Chatear por WhatsApp" button and the channel
+//	               question; off by default, and only offered while
+//	               LIVE_WHATSAPP_TEST is on (it uses AndRho's number until
+//	               AndRho is a Tech Provider)
+const (
+	featureLiveCRM      = "live_crm"
+	featureLiveWhatsApp = "live_whatsapp"
+)
+
+func (h *Handler) subFeature(ctx context.Context, accountID, feature string, available, def bool) (featureState, error) {
+	st := featureState{Available: available}
+	if !available {
+		return st, nil
+	}
+	on, set, err := db.FeatureSetting(ctx, h.Accounts, accountID, feature)
+	if err != nil {
+		return st, err
+	}
+	st.Enabled = def
+	if set {
+		st.Enabled = on
+	}
+	return st, nil
+}
+
+// liveCRMFeature: available with live sales on.
+func (h *Handler) liveCRMFeature(ctx context.Context, accountID string) (featureState, error) {
+	live, err := h.liveFeature(ctx, accountID)
+	if err != nil {
+		return featureState{}, err
+	}
+	return h.subFeature(ctx, accountID, featureLiveCRM, live.Enabled, true)
+}
+
+// liveWhatsAppFeature: available with live sales on, AndRho's WhatsApp on
+// and LIVE_WHATSAPP_TEST.
+func (h *Handler) liveWhatsAppFeature(ctx context.Context, accountID string) (featureState, error) {
+	live, err := h.liveFeature(ctx, accountID)
+	if err != nil {
+		return featureState{}, err
+	}
+	return h.subFeature(ctx, accountID, featureLiveWhatsApp, live.Enabled && h.WA.Enabled() && h.Cfg.LiveWhatsAppTest, false)
+}
+
+func (h *Handler) featureOn(ctx context.Context, accountID, feature string) bool {
+	var st featureState
+	var err error
+	switch feature {
+	case featureLiveCRM:
+		st, err = h.liveCRMFeature(ctx, accountID)
+	case featureLiveWhatsApp:
+		st, err = h.liveWhatsAppFeature(ctx, accountID)
+	default:
+		st, err = h.liveFeature(ctx, accountID)
+	}
+	return err == nil && st.Enabled
+}
+
 // accountFeatures is what GET /auth/me carries.
 func (h *Handler) accountFeatures(ctx context.Context, accountID string) map[string]featureState {
 	out := map[string]featureState{}
 	if st, err := h.liveFeature(ctx, accountID); err == nil {
 		out[featureLiveSale] = st
+	}
+	if st, err := h.liveCRMFeature(ctx, accountID); err == nil {
+		out[featureLiveCRM] = st
+	}
+	if st, err := h.liveWhatsAppFeature(ctx, accountID); err == nil {
+		out[featureLiveWhatsApp] = st
 	}
 	return out
 }
@@ -87,7 +155,12 @@ func (h *Handler) syncLiveERP(accountID string) {
 // {enabled}. Turning on needs the plan to include it.
 func (h *Handler) SetAccountFeature(c *gin.Context) {
 	claims, _ := currentClaims(c)
-	if c.Param("feature") != featureLiveSale {
+	feature := c.Param("feature")
+	if feature == featureLiveCRM || feature == featureLiveWhatsApp {
+		h.setSubFeature(c, feature)
+		return
+	}
+	if feature != featureLiveSale {
 		respondError(c, http.StatusNotFound, "función desconocida")
 		return
 	}
@@ -115,5 +188,46 @@ func (h *Handler) SetAccountFeature(c *gin.Context) {
 	label := map[bool]string{true: "activada", false: "desactivada"}[*req.Enabled]
 	_ = db.LogEvent(ctx, h.Accounts, uuid.NewString(), claims.AccountID, &claims.Sub, "feature_changed", "Venta en vivo "+label)
 	h.syncLiveERP(claims.AccountID)
+	c.JSON(http.StatusOK, gin.H{"features": h.accountFeatures(ctx, claims.AccountID)})
+}
+
+var featureLabels = map[string]string{featureLiveCRM: "Clientes y prospectos de los lives", featureLiveWhatsApp: "WhatsApp en la venta en vivo"}
+
+// setSubFeature turns live_crm or live_whatsapp on or off.
+func (h *Handler) setSubFeature(c *gin.Context, feature string) {
+	claims, _ := currentClaims(c)
+	var req struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.Enabled == nil {
+		respondError(c, http.StatusBadRequest, "enabled es obligatorio")
+		return
+	}
+	ctx := c.Request.Context()
+	var st featureState
+	var err error
+	if feature == featureLiveCRM {
+		st, err = h.liveCRMFeature(ctx, claims.AccountID)
+	} else {
+		st, err = h.liveWhatsAppFeature(ctx, claims.AccountID)
+	}
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if *req.Enabled && !st.Available {
+		msg := "Primero activa la venta en vivo."
+		if feature == featureLiveWhatsApp {
+			msg = "WhatsApp en la venta en vivo está en prueba y todavía no está disponible para tu cuenta."
+		}
+		c.JSON(http.StatusForbidden, gin.H{"error": "unavailable", "message": msg})
+		return
+	}
+	if err := db.SetFeature(ctx, h.Accounts, claims.AccountID, feature, *req.Enabled); err != nil {
+		respondError(c, http.StatusInternalServerError, "internal error")
+		return
+	}
+	label := map[bool]string{true: "activado", false: "desactivado"}[*req.Enabled]
+	_ = db.LogEvent(ctx, h.Accounts, uuid.NewString(), claims.AccountID, &claims.Sub, "feature_changed", featureLabels[feature]+" "+label)
 	c.JSON(http.StatusOK, gin.H{"features": h.accountFeatures(ctx, claims.AccountID)})
 }

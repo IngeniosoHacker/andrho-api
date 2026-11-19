@@ -85,15 +85,16 @@ func lineByID(lines []liveLine, id int) (liveLine, bool) {
 	return liveLine{}, false
 }
 
-// liveComment handles one comment of a live on air. It reports whether
-// the comment took or queued for an item (the caller then re-reads lines).
-func (h *Handler) liveComment(ctx context.Context, cl *odoo.Client, sess db.LiveSession, page pageCtx, lines []liveLine, c meta.Comment) bool {
+// liveComment handles one comment of a live on air. took: the comment took
+// or queued for an item (the caller then re-reads lines); matched: it named
+// an item (otherwise its author may be a prospect).
+func (h *Handler) liveComment(ctx context.Context, cl *odoo.Client, sess db.LiveSession, page pageCtx, lines []liveLine, c meta.Comment) (took, matched bool) {
 	if c.From.ID == page.PageID {
-		return false // the seller's own comments
+		return false, true // the seller's own comments
 	}
 	item, ok := live.Match(c.Message, itemsFor(lines))
 	if !ok {
-		return false
+		return false, false
 	}
 	at := c.CreatedTime
 	if at.IsZero() {
@@ -105,15 +106,15 @@ func (h *Handler) liveComment(ctx context.Context, cl *odoo.Client, sess db.Live
 	})
 	if err != nil {
 		log.Printf("live: claim %s: %v", c.ID, err)
-		return false
+		return false, true
 	}
 	if !inserted {
-		return false
+		return false, true
 	}
 	if l, ok := lineByID(lines, item.ID); ok && l.State == "available" {
 		h.askClaim(ctx, cl, page, claim, l)
 	}
-	return true
+	return true, true
 }
 
 // postComment handles a comment on an unsold item's post: only "mío".
@@ -159,14 +160,24 @@ func (h *Handler) askClaim(ctx context.Context, cl *odoo.Client, page pageCtx, c
 	if author == "" {
 		author = "comment:" + claim.CommentID
 	}
-	ok, err := erpReserve(ctx, cl, line.ID, author, name, page.PageID, claim.CommentID, claim.CommentText)
-	if err != nil || !ok {
+	buyerID, err := erpReserve(ctx, cl, line.ID, author, name, page.PageID, claim.CommentID, claim.CommentText)
+	if err != nil || buyerID == 0 {
 		if err != nil {
 			log.Printf("live: reserve line %d: %v", line.ID, err)
 		}
 		return false // stays queued: someone else has it
 	}
-	err = h.Meta.PrivateReply(ctx, page.PageID, page.token, claim.CommentID, live.ConfirmText(line.LiveName, line.Price), confirmButtons(claim.ID))
+	if buyerID > 0 {
+		claim.BuyerID = buyerID
+		_ = db.SetLiveClaimBuyerID(ctx, h.Accounts, claim.ID, buyerID)
+	}
+	// The only message Meta guarantees (one per comment): the question, the
+	// notice about the data and, where it applies, the WhatsApp button.
+	buttons := confirmButtons(claim.ID)
+	if b := h.whatsappButton(ctx, claim); b != nil {
+		buttons = append(buttons, *b)
+	}
+	err = h.Meta.PrivateReply(ctx, page.PageID, page.token, claim.CommentID, live.ConfirmWithConsent(line.LiveName, line.Price), buttons)
 	if err != nil {
 		log.Printf("live: private reply %s: %v", claim.CommentID, err)
 		_, _ = db.SetLiveClaimState(ctx, h.Accounts, claim.ID, []string{"queued"}, "failed")
@@ -174,6 +185,7 @@ func (h *Handler) askClaim(ctx context.Context, cl *odoo.Client, page pageCtx, c
 		return false
 	}
 	_, _ = db.SetLiveClaimState(ctx, h.Accounts, claim.ID, []string{"queued"}, "asked")
+	h.notifyPreferred(ctx, cl, claim, line)
 	return true
 }
 
@@ -200,49 +212,66 @@ func (h *Handler) advance(ctx context.Context, cl *odoo.Client, accountID string
 	}
 }
 
-// livePostback handles a tap on Sí/No.
+// livePostback handles a tap in Messenger: Sí/No or the channel question.
 func (h *Handler) livePostback(ctx context.Context, page pageCtx, psid, payload string) {
-	yes := strings.HasPrefix(payload, live.PayloadYes)
-	no := strings.HasPrefix(payload, live.PayloadNo)
-	if !yes && !no {
-		return
-	}
-	idText := strings.TrimPrefix(strings.TrimPrefix(payload, live.PayloadYes), live.PayloadNo)
-	id, err := strconv.ParseInt(idText, 10, 64)
-	if err != nil {
+	prefix, id, ok := payloadClaim(payload, live.PayloadYes, live.PayloadNo, live.PayloadChannelWA, live.PayloadChannelMS)
+	if !ok {
 		return
 	}
 	claim, err := db.GetLiveClaim(ctx, h.Accounts, id)
 	if err != nil || claim.PageID != page.PageID {
 		return
 	}
+	chat := messengerChat{h: h, page: page, id: psid}
+	switch prefix {
+	case live.PayloadChannelWA, live.PayloadChannelMS:
+		h.answerChannel(ctx, chat, claim, prefix == live.PayloadChannelWA)
+	default:
+		h.answerClaim(ctx, chat, claim, prefix == live.PayloadYes)
+	}
+}
+
+// answerClaim handles "Sí" or "No", from Messenger or WhatsApp.
+func (h *Handler) answerClaim(ctx context.Context, chat buyerChat, claim db.LiveClaim, yes bool) {
 	cl, err := h.odooFor(ctx, claim.AccountID)
 	if err != nil {
-		log.Printf("live: postback %d: erp: %v", id, err)
+		log.Printf("live: answer %d: erp: %v", claim.ID, err)
 		return
 	}
-	if no {
+	id := claim.ID
+	if !yes {
 		if ok, _ := db.SetLiveClaimState(ctx, h.Accounts, id, []string{"asked"}, "declined"); !ok {
 			return
 		}
 		_ = erpRelease(ctx, cl, claim.OdooLineID)
-		_ = h.Meta.SendText(ctx, page.PageID, page.token, psid, live.Declined)
+		chat.say(ctx, live.Declined)
 		h.advance(ctx, cl, claim.AccountID, claim.OdooLineID)
 		return
 	}
 	if ok, _ := db.SetLiveClaimState(ctx, h.Accounts, id, []string{"asked"}, "confirmed"); !ok {
 		if claim.State == "expired" {
-			_ = h.Meta.SendText(ctx, page.PageID, page.token, psid, live.Expired)
+			chat.say(ctx, live.Expired)
 		}
 		return
 	}
 	res, err := erpConfirm(ctx, cl, claim.OdooLineID)
 	if err != nil {
 		log.Printf("live: confirm line %d: %v", claim.OdooLineID, err)
-		_ = h.Meta.SendText(ctx, page.PageID, page.token, psid, "Tuvimos un problema al apartar tu pedido. La tienda te escribirá en un momento.")
+		chat.say(ctx, "Tuvimos un problema al apartar tu pedido. La tienda te escribirá en un momento.")
 		return
 	}
+	psid := claim.PSID
+	if chat.psid() != "" {
+		psid = chat.psid()
+	}
 	_ = db.SetLiveClaimBuyer(ctx, h.Accounts, id, psid, res.CardID)
+	if claim.BuyerID > 0 && h.featureOn(ctx, claim.AccountID, featureLiveCRM) {
+		// They read the notice in the first message and went on.
+		if chat.psid() != "" {
+			_ = erpLinkPSID(ctx, cl, claim.BuyerID, chat.psid())
+		}
+		_ = erpSetReach(ctx, cl, claim.BuyerID, map[string]string{"consent_channel": chat.channel()})
+	}
 	first := live.FirstName(claim.AuthorName)
 	var msg, step string
 	switch {
@@ -254,51 +283,92 @@ func (h *Handler) livePostback(ctx context.Context, page pageCtx, psid, payload 
 	default:
 		step, msg = "change", live.AfterYes(first, res.DiscountPct, res.Address, res.Zone)
 	}
-	_ = db.SaveLiveThread(ctx, h.Accounts, db.LiveThread{PageID: page.PageID, PSID: psid, AccountID: claim.AccountID, Step: step, CardID: res.CardID})
-	if err := h.Meta.SendText(ctx, page.PageID, page.token, psid, msg); err != nil {
-		log.Printf("live: message %s: %v", psid, err)
+	t := db.LiveThread{AccountID: claim.AccountID, Step: step, CardID: res.CardID, ClaimID: claim.ID, PageID: claim.PageID}
+	chat.saveThread(ctx, t)
+	chat.say(ctx, msg)
+	if step == "change" {
+		// Nothing missing: the channel question (if it applies) comes now.
+		if h.wantsChannelQuestion(ctx, cl, claim) {
+			t.Step = "channel"
+			chat.saveThread(ctx, t)
+			chat.ask(ctx, live.AskChannel, channelChoices(claim.ID))
+		}
 	}
 	if claim.Source == "post" && claim.PostID != "" {
-		// Sold: the post comes down so nobody else comments "mío".
-		state := "sold"
-		if err := h.Meta.DeletePost(ctx, claim.PostID, page.token); err == nil {
-			state = "deleted"
+		if page, err := h.pageFor(ctx, claim.PageID); err == nil {
+			// Sold: the post comes down so nobody else comments "mío".
+			state := "sold"
+			if err := h.Meta.DeletePost(ctx, claim.PostID, page.token); err == nil {
+				state = "deleted"
+			}
+			_ = db.SetLivePostState(ctx, h.Accounts, claim.PostID, state)
 		}
-		_ = db.SetLivePostState(ctx, h.Accounts, claim.PostID, state)
 	}
 }
 
 var addressHint = regexp.MustCompile(`(?i)\d|zona|calle|avenida|ave\.|col\.|colonia|aldea|km|lote|casa|apto|residencial|condominio`)
 
-// liveText handles a buyer's message after "Sí": their phone and address.
-func (h *Handler) liveText(ctx context.Context, page pageCtx, psid, text string) {
-	t, err := db.GetLiveThread(ctx, h.Accounts, page.PageID, psid)
-	if err != nil || t.Step == "" || t.CardID == 0 {
-		return // not a live conversation: the seller answers it
+// liveText handles a buyer's Messenger message after "Sí"; false when
+// it isn't part of a purchase conversation.
+func (h *Handler) liveText(ctx context.Context, page pageCtx, psid, text string) bool {
+	chat := messengerChat{h: h, page: page, id: psid}
+	t, err := chat.thread(ctx)
+	if err != nil || t.Step == "" || (t.CardID == 0 && t.Step != "channel") {
+		return false // not a live conversation: the seller answers it
 	}
+	h.shippingText(ctx, chat, t, text)
+	return true
+}
+
+// shippingText: the phone, the address, a new address, or the answer to
+// the channel question typed instead of tapped.
+func (h *Handler) shippingText(ctx context.Context, chat buyerChat, t db.LiveThread, text string) {
 	cl, err := h.odooFor(ctx, t.AccountID)
 	if err != nil {
 		return
+	}
+	var claim db.LiveClaim
+	if t.ClaimID != 0 {
+		claim, _ = db.GetLiveClaim(ctx, h.Accounts, t.ClaimID)
+	}
+	if t.Step == "channel" {
+		n := live.Normalize(text)
+		switch {
+		case strings.Contains(n, "whatsapp") || strings.Contains(n, "wasap") || n == "wa":
+			h.answerChannel(ctx, chat, claim, true)
+			return
+		case strings.Contains(n, "messenger") || strings.Contains(n, "facebook") || strings.Contains(n, "mensajero"):
+			h.answerChannel(ctx, chat, claim, false)
+			return
+		}
+		if t.CardID == 0 || len(strings.TrimSpace(text)) < 6 || !addressHint.MatchString(text) {
+			chat.ask(ctx, live.AskChannel, channelChoices(t.ClaimID))
+			return
+		}
+		t.Step = "change" // a new address typed instead
 	}
 	reply := ""
 	switch t.Step {
 	case "phone":
 		phone, ok := live.Phone(text)
 		if !ok {
-			reply = live.BadPhone
-			break
+			chat.say(ctx, live.BadPhone)
+			return
 		}
 		if err := erpSetShipping(ctx, cl, t.CardID, phone, "", ""); err != nil {
 			log.Printf("live: shipping card %d: %v", t.CardID, err)
 			return
 		}
-		t.Step, reply = "address", live.AskAddress
+		t.Step = "address"
+		chat.saveThread(ctx, t)
+		chat.say(ctx, live.AskAddress)
+		return
 	case "address", "change":
 		if len(strings.TrimSpace(text)) < 6 || !addressHint.MatchString(text) {
 			if t.Step == "address" {
-				reply = live.AskAddress
+				chat.say(ctx, live.AskAddress)
 			}
-			break
+			return
 		}
 		addr, zone := live.Address(text)
 		if err := erpSetShipping(ctx, cl, t.CardID, "", addr, zone); err != nil {
@@ -307,14 +377,19 @@ func (h *Handler) liveText(ctx context.Context, page pageCtx, psid, text string)
 		}
 		if t.Step == "change" {
 			reply = "Listo, lo enviamos a " + strings.Trim(addr+", "+zone, ", ") + "."
-		} else {
-			reply = live.Done
+			t.Step = ""
+			chat.saveThread(ctx, t)
+			chat.say(ctx, reply)
+			return
+		}
+		// The data is complete: close (with the channel question first).
+		if claim.ID != 0 {
+			h.closeConfirmation(ctx, chat, cl, claim, t)
+			return
 		}
 		t.Step = ""
-	}
-	_ = db.SaveLiveThread(ctx, h.Accounts, t)
-	if reply != "" {
-		_ = h.Meta.SendText(ctx, page.PageID, page.token, psid, reply)
+		chat.saveThread(ctx, t)
+		chat.say(ctx, live.Done)
 	}
 }
 
@@ -385,6 +460,7 @@ func (h *Handler) runLive(ctx context.Context, sessionID string) {
 		}
 		if time.Since(lastStatus) >= liveStatusEvery {
 			lastStatus = time.Now()
+			h.liveReactions(ctx, sess, page, seen)
 			if v, err := h.Meta.Live(ctx, sess.PlatformLiveID, page.token); err == nil && !v.IsLive() && v.Status != "" &&
 				v.Status != "UNPUBLISHED" && v.Status != "SCHEDULED_LIVE" && v.Status != "PREVIEW" {
 				h.endLive(ctx, sess)
@@ -406,16 +482,26 @@ func (h *Handler) liveBatch(ctx context.Context, sess db.LiveSession, page pageC
 	}
 	lines := sum.Lines
 	newest := time.Time{}
+	people, seen := []prospect{}, map[string]bool{}
 	for _, c := range comments {
-		if h.liveComment(ctx, cl, sess, page, lines, c) {
+		took, matched := h.liveComment(ctx, cl, sess, page, lines, c)
+		if took {
 			if s, err := erpLiveSummary(ctx, cl, sess.OdooLiveID); err == nil {
 				lines = s.Lines
 			}
+		}
+		if matched {
+			seen[c.From.ID] = true // a customer now, not a prospect
+		}
+		if !matched && c.From.ID != "" && !seen[c.From.ID] {
+			seen[c.From.ID] = true
+			people = append(people, prospect{CommenterID: c.From.ID, Name: c.From.Name, Source: "comment_other"})
 		}
 		if c.CreatedTime.After(newest) {
 			newest = c.CreatedTime
 		}
 	}
+	h.touchProspects(ctx, cl, sess.AccountID, page.PageID, sess.OdooLiveID, people)
 	if !newest.IsZero() {
 		_ = db.TouchLiveSession(ctx, h.Accounts, sess.ID, newest)
 	}

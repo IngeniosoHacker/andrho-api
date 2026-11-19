@@ -188,6 +188,10 @@ func New(h *handlers.Handler) *gin.Engine {
 		liveGroup.GET("/settings", h.LiveSettings)
 		liveGroup.PUT("/settings", middleware.RequireRole("admin"), h.LiveSaveSettings)
 		liveGroup.GET("/metrics", h.LiveMetrics)
+		// CRM from the lives: each live's customers and prospects, and all
+		// of them with preferred channel and conversion.
+		liveGroup.GET("/sessions/:id/people", h.LivePeople)
+		liveGroup.GET("/contacts", h.LiveContacts)
 	}
 
 	// Meta (public): Facebook Login's return and the Page webhook (signed

@@ -49,14 +49,17 @@ func TestPrivateReplyPayload(t *testing.T) {
 		_ = json.Unmarshal(body, &got)
 		w.Write([]byte(`{"recipient_id":"1","message_id":"m"}`))
 	})
-	err := c.PrivateReply(context.Background(), "PAGE", "tok", "C1", "¿Confirmas?", []Button{{"Sí", "LS_YES:1"}, {"No", "LS_NO:1"}})
+	err := c.PrivateReply(context.Background(), "PAGE", "tok", "C1", "¿Confirmas?", []Button{{Title: "Sí", Payload: "LS_YES:1"}, {Title: "No", Payload: "LS_NO:1"}, {Title: "Chatear por WhatsApp", URL: "https://wa.me/1?text=Pedido+AR-7F3K"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	rec := got["recipient"].(map[string]any)
 	tpl := got["message"].(map[string]any)["attachment"].(map[string]any)["payload"].(map[string]any)
-	if rec["comment_id"] != "C1" || tpl["template_type"] != "button" || len(tpl["buttons"].([]any)) != 2 {
+	if rec["comment_id"] != "C1" || tpl["template_type"] != "button" || len(tpl["buttons"].([]any)) != 3 {
 		t.Fatalf("%v", got)
+	}
+	if wa := tpl["buttons"].([]any)[2].(map[string]any); wa["type"] != "web_url" || wa["url"] == "" || wa["payload"] != nil {
+		t.Fatalf("wa button %v", wa)
 	}
 }
 

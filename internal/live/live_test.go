@@ -1,6 +1,9 @@
 package live
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestNormalizeAndMio(t *testing.T) {
 	cases := map[string]string{"¡Mío!! 😍": "mio", "  Blusa  Roja #3 ": "blusa roja 3", "MÍO": "mio", "Ñandú": "nandu"}
@@ -113,5 +116,19 @@ func TestMessages(t *testing.T) {
 	}
 	if c := PostCaption(85, "", true, ""); c != "Q85\nAplica descuento para clientes frecuentes.\n\nComenta «Mío» si lo quieres. La primera persona en comentar se lo lleva y le escribimos por Messenger para confirmar." {
 		t.Fatal(c)
+	}
+}
+
+func TestOrderCode(t *testing.T) {
+	for in, want := range map[string]string{"Pedido AR-7F3K": "AR-7F3K", "hola ar-7f3k gracias": "AR-7F3K", "AR-7F3": "", "XAR-7F3K": ""} {
+		if got := OrderCode(in); got != want {
+			t.Errorf("%q: got %q want %q", in, got, want)
+		}
+	}
+	if !strings.Contains(ConfirmWithConsent("blusa roja 1", 85), ConsentNote) {
+		t.Fatal("consent note")
+	}
+	if DoneWith("") != Done || !strings.Contains(DoneWith("https://x.y/p"), "https://x.y/p") {
+		t.Fatal("done")
 	}
 }

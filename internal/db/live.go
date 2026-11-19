@@ -191,18 +191,19 @@ type LiveClaim struct {
 	Source, PostID, CommentID                string
 	AuthorID, AuthorName, CommentText, State string
 	PSID                                     string
+	BuyerID                                  int // the ERP's andrho.live.buyer
 	CardID                                   *int
 	CommentedAt                              time.Time
 	AskedAt, AnsweredAt                      *time.Time
 }
 
 const claimCols = `id, account_id::text, COALESCE(session_id::text, ''), page_id, odoo_line_id, source, post_id, comment_id,
-	author_id, author_name, comment_text, state, psid, card_id, commented_at, asked_at, answered_at`
+	author_id, author_name, comment_text, state, psid, buyer_id, card_id, commented_at, asked_at, answered_at`
 
 func scanClaim(row pgx.Row) (LiveClaim, error) {
 	var c LiveClaim
 	err := row.Scan(&c.ID, &c.AccountID, &c.SessionID, &c.PageID, &c.OdooLineID, &c.Source, &c.PostID, &c.CommentID,
-		&c.AuthorID, &c.AuthorName, &c.CommentText, &c.State, &c.PSID, &c.CardID, &c.CommentedAt, &c.AskedAt, &c.AnsweredAt)
+		&c.AuthorID, &c.AuthorName, &c.CommentText, &c.State, &c.PSID, &c.BuyerID, &c.CardID, &c.CommentedAt, &c.AskedAt, &c.AnsweredAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return c, ErrNotFound
 	}
@@ -333,14 +334,15 @@ func SetLivePostState(ctx context.Context, pool *pgxpool.Pool, postID, state str
 type LiveThread struct {
 	PageID, PSID, AccountID, Step string
 	CardID                        int
+	ClaimID                       int64
 }
 
 // SaveLiveThread sets what AndRho waits for from a buyer.
 func SaveLiveThread(ctx context.Context, pool *pgxpool.Pool, t LiveThread) error {
 	_, err := pool.Exec(ctx,
-		`INSERT INTO live_threads (page_id, psid, account_id, step, card_id) VALUES ($1, $2, $3, $4, NULLIF($5, 0))
-		 ON CONFLICT (page_id, psid) DO UPDATE SET account_id = $3, step = $4, card_id = NULLIF($5, 0), updated_at = now()`,
-		t.PageID, t.PSID, t.AccountID, t.Step, t.CardID)
+		`INSERT INTO live_threads (page_id, psid, account_id, step, card_id, claim_id) VALUES ($1, $2, $3, $4, NULLIF($5, 0), $6)
+		 ON CONFLICT (page_id, psid) DO UPDATE SET account_id = $3, step = $4, card_id = NULLIF($5, 0), claim_id = $6, updated_at = now()`,
+		t.PageID, t.PSID, t.AccountID, t.Step, t.CardID, t.ClaimID)
 	return err
 }
 
@@ -350,9 +352,9 @@ func GetLiveThread(ctx context.Context, pool *pgxpool.Pool, pageID, psid string)
 	var t LiveThread
 	var card *int
 	err := pool.QueryRow(ctx,
-		`SELECT page_id, psid, account_id::text, step, card_id FROM live_threads
+		`SELECT page_id, psid, account_id::text, step, card_id, claim_id FROM live_threads
 		 WHERE page_id = $1 AND psid = $2 AND updated_at > now() - interval '24 hours'`, pageID, psid).
-		Scan(&t.PageID, &t.PSID, &t.AccountID, &t.Step, &card)
+		Scan(&t.PageID, &t.PSID, &t.AccountID, &t.Step, &card, &t.ClaimID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return t, ErrNotFound
 	}
@@ -360,4 +362,73 @@ func GetLiveThread(ctx context.Context, pool *pgxpool.Pool, pageID, psid string)
 		t.CardID = *card
 	}
 	return t, err
+}
+
+// SetLiveClaimBuyerID records the ERP contact a claim's comment made.
+func SetLiveClaimBuyerID(ctx context.Context, pool *pgxpool.Pool, id int64, buyerID int) error {
+	_, err := pool.Exec(ctx, `UPDATE live_claims SET buyer_id = $2 WHERE id = $1`, id, buyerID)
+	return err
+}
+
+// LiveLinkCode mirrors live_link_codes.
+type LiveLinkCode struct {
+	Code, AccountID, PageID, WAPhone string
+	ClaimID                          int64
+	BuyerID                          int
+	ExpiresAt                        time.Time
+	UsedAt                           *time.Time
+}
+
+// CreateLiveLinkCode gives a claim its order code (one per claim: an
+// existing one is returned). ok=false when code is taken by another claim.
+func CreateLiveLinkCode(ctx context.Context, pool *pgxpool.Pool, l LiveLinkCode) (LiveLinkCode, bool, error) {
+	if old, err := LiveLinkCodeForClaim(ctx, pool, l.ClaimID); err == nil {
+		return old, true, nil
+	}
+	tag, err := pool.Exec(ctx,
+		`INSERT INTO live_link_codes (code, account_id, claim_id, page_id, buyer_id, expires_at) VALUES ($1, $2, $3, $4, $5, $6)
+		 ON CONFLICT DO NOTHING`, l.Code, l.AccountID, l.ClaimID, l.PageID, l.BuyerID, l.ExpiresAt)
+	if err != nil {
+		return l, false, err
+	}
+	if tag.RowsAffected() == 0 {
+		if old, err := LiveLinkCodeForClaim(ctx, pool, l.ClaimID); err == nil {
+			return old, true, nil
+		}
+		return l, false, nil
+	}
+	return l, true, nil
+}
+
+const linkCols = `code, account_id::text, claim_id, page_id, buyer_id, wa_phone, expires_at, used_at`
+
+func scanLink(row pgx.Row) (LiveLinkCode, error) {
+	var l LiveLinkCode
+	err := row.Scan(&l.Code, &l.AccountID, &l.ClaimID, &l.PageID, &l.BuyerID, &l.WAPhone, &l.ExpiresAt, &l.UsedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return l, ErrNotFound
+	}
+	return l, err
+}
+
+// LiveLinkCodeForClaim reads a claim's order code.
+func LiveLinkCodeForClaim(ctx context.Context, pool *pgxpool.Pool, claimID int64) (LiveLinkCode, error) {
+	return scanLink(pool.QueryRow(ctx, `SELECT `+linkCols+` FROM live_link_codes WHERE claim_id = $1`, claimID))
+}
+
+// GetLiveLinkCode reads a code still in time.
+func GetLiveLinkCode(ctx context.Context, pool *pgxpool.Pool, code string) (LiveLinkCode, error) {
+	return scanLink(pool.QueryRow(ctx, `SELECT `+linkCols+` FROM live_link_codes WHERE code = $1 AND expires_at > now()`, code))
+}
+
+// UseLiveLinkCode records the WhatsApp number that sent the code.
+func UseLiveLinkCode(ctx context.Context, pool *pgxpool.Pool, code, phone string) error {
+	_, err := pool.Exec(ctx, `UPDATE live_link_codes SET wa_phone = $2, used_at = COALESCE(used_at, now()) WHERE code = $1`, code, phone)
+	return err
+}
+
+// LatestLinkForPhone is the newest order a WhatsApp number linked (for its
+// replies without a code).
+func LatestLinkForPhone(ctx context.Context, pool *pgxpool.Pool, phone string) (LiveLinkCode, error) {
+	return scanLink(pool.QueryRow(ctx, `SELECT `+linkCols+` FROM live_link_codes WHERE wa_phone = $1 ORDER BY used_at DESC NULLS LAST LIMIT 1`, phone))
 }

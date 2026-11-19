@@ -296,16 +296,38 @@ func (c *Client) LiveComments(ctx context.Context, liveID, pageToken string, sin
 	return res.Data, nil
 }
 
+// Reaction is someone who reacted to a live.
+type Reaction struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// LiveReactions reads who reacted to a live (the newest page). Meta gives
+// their name and id; people who only watch are not available at all.
+func (c *Client) LiveReactions(ctx context.Context, liveID, pageToken string) ([]Reaction, error) {
+	var res struct {
+		Data []Reaction `json:"data"`
+	}
+	err := c.get(ctx, liveID+"/reactions", url.Values{"access_token": {pageToken}, "fields": {"id,name,type"}, "limit": {"100"}}, &res)
+	return res.Data, err
+}
+
 // --- Messenger ---------------------------------------------------------------
 
-// Button is a postback button.
+// Button is a postback button, or a link (URL set: it opens the page, e.g.
+// a wa.me chat). A button template holds up to 3.
 type Button struct {
-	Title, Payload string
+	Title, Payload, URL string
 }
 
 func buttonTemplate(text string, buttons []Button) map[string]any {
 	bs := make([]map[string]string, 0, len(buttons))
 	for _, b := range buttons {
+		if b.URL != "" {
+			bs = append(bs, map[string]string{"type": "web_url", "title": b.Title, "url": b.URL})
+			continue
+		}
 		bs = append(bs, map[string]string{"type": "postback", "title": b.Title, "payload": b.Payload})
 	}
 	return map[string]any{"attachment": map[string]any{"type": "template",
