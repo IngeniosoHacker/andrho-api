@@ -455,8 +455,13 @@ func (h *Handler) waLive(ctx context.Context, m whatsapp.Message) bool {
 
 // waOrderCode joins the WhatsApp number to the order's contact.
 func (h *Handler) waOrderCode(ctx context.Context, m whatsapp.Message, code string) {
+	if waGuesses.blocked(m.From, time.Now()) {
+		h.waSay(ctx, m.From, waTooManyCodes)
+		return
+	}
 	l, err := db.GetLiveLinkCode(ctx, h.Accounts, code)
 	if err != nil {
+		waGuesses.miss(m.From, time.Now())
 		h.waSay(ctx, m.From, live.WhatsAppLinkExpired)
 		return
 	}
@@ -467,6 +472,7 @@ func (h *Handler) waOrderCode(ctx context.Context, m whatsapp.Message, code stri
 	}
 	if l.WAPhone != "" && l.WAPhone != m.From {
 		// Someone else already linked this order: a forwarded code.
+		waGuesses.miss(m.From, time.Now())
 		h.waSay(ctx, m.From, live.WhatsAppLinkExpired)
 		return
 	}
