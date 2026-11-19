@@ -23,8 +23,8 @@ import (
 	"github.com/IngeniosoHacker/andrho-api/internal/db"
 	"github.com/IngeniosoHacker/andrho-api/internal/live"
 	"github.com/IngeniosoHacker/andrho-api/internal/meta"
-	"github.com/IngeniosoHacker/andrho-api/internal/whatsapp"
 	"github.com/IngeniosoHacker/andrho-api/internal/odoo"
+	"github.com/IngeniosoHacker/andrho-api/internal/whatsapp"
 )
 
 // Venta en vivo, the dashboard's "En vivo" section (founder/live-sale-spec.md).
