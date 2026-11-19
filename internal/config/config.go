@@ -65,6 +65,14 @@ type Config struct {
 	// same META_APP_SECRET and META_VERIFY_TOKEN).
 	WhatsAppEnabled                                       bool
 	WhatsAppToken, WhatsAppPhoneNumberID, WhatsAppWABAID string
+	// LiveWhatsAppTest lets accounts turn on the "Chatear por WhatsApp"
+	// button of live sales. It points to AndRho's number: test only, until
+	// AndRho is a Tech Provider and each store connects its own.
+	LiveWhatsAppTest bool
+	// WhatsAppTemplateLiveConfirm: an approved template ({{1}} item,
+	// {{2}} price) to ask a buyer who prefers WhatsApp when it's been more
+	// than 24 h since they wrote. Empty: only inside the window.
+	WhatsAppTemplateLiveConfirm, WhatsAppTemplateLang string
 }
 
 // Load reads a .env file if present (silently ignored when missing, since in
@@ -111,6 +119,9 @@ func Load() *Config {
 		WhatsAppToken:         getEnv("WHATSAPP_TOKEN", ""),
 		WhatsAppPhoneNumberID: getEnv("WHATSAPP_PHONE_NUMBER_ID", ""),
 		WhatsAppWABAID:        getEnv("WHATSAPP_BUSINESS_ACCOUNT_ID", ""),
+		LiveWhatsAppTest:            getEnv("LIVE_WHATSAPP_TEST", "") == "true",
+		WhatsAppTemplateLiveConfirm: getEnv("WHATSAPP_TEMPLATE_LIVE_CONFIRM", ""),
+		WhatsAppTemplateLang:        getEnv("WHATSAPP_TEMPLATE_LANG", "es"),
 	}
 	if cfg.SecretsKey == "" {
 		log.Println("config: SECRETS_KEY is not set, stored credentials are encrypted with a key derived from JWT_SECRET")

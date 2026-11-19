@@ -113,15 +113,24 @@ func erpLine(ctx context.Context, cl *odoo.Client, id int) (liveLine, error) {
 	return ls[0], nil
 }
 
-// erpReserve gives the item to the commenter; ok=false when it was taken.
-func erpReserve(ctx context.Context, cl *odoo.Client, lineID int, authorID, name, pageID, commentID, text string) (bool, error) {
+// erpReserve gives the item to the commenter and returns their contact in
+// the ERP (andrho.live.buyer, now a customer); 0 when it was taken.
+func erpReserve(ctx context.Context, cl *odoo.Client, lineID int, authorID, name, pageID, commentID, text string) (int, error) {
 	var res any
 	err := cl.Exec(ctx, lineModel, "andrho_reserve", []any{[]int{lineID}, authorID, name, pageID, commentID, text}, nil, &res)
 	if err != nil {
-		return false, err
+		return 0, err
 	}
-	b, isBool := res.(bool)
-	return !isBool || b, nil
+	switch v := res.(type) {
+	case bool:
+		if !v {
+			return 0, nil
+		}
+		return -1, nil // reserved, the ERP didn't say who
+	case float64:
+		return int(v), nil
+	}
+	return -1, nil
 }
 
 func erpRelease(ctx context.Context, cl *odoo.Client, lineID int) error {
@@ -187,6 +196,10 @@ var liveParams = map[string]string{
 	"loyalty_min":      "andrho.live.loyalty_min_purchases",
 	"loyalty_discount": "andrho.live.loyalty_discount",
 	"claim_word":       "andrho.live.claim_word",
+	// CRM from the lives: reactions as prospects (off unless the seller
+	// turns it on) and the store's privacy notice in the confirmation.
+	"capture_reactions": "andrho.live.capture_reactions",
+	"privacy_url":       "andrho.live.privacy_url",
 }
 
 func erpGetParam(ctx context.Context, cl *odoo.Client, key string) (string, error) {

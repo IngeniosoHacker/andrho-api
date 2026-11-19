@@ -339,3 +339,59 @@ func PostCaption(price float64, description string, loyalty bool, word string) s
 	b.WriteString("\n\nComenta «" + string(r) + "» si lo quieres. La primera persona en comentar se lo lleva y le escribimos por Messenger para confirmar.")
 	return b.String()
 }
+
+// --- CRM from the lives (2026-11-19) -------------------------------------------
+
+// Payloads of the preferred-channel question; WhatsApp buttons carry the
+// same Sí/No payloads as Messenger.
+const (
+	PayloadChannelWA = "LS_CH_WA:"
+	PayloadChannelMS = "LS_CH_MS:"
+)
+
+// ConsentNote goes in the first message: the only one Meta guarantees
+// (one private reply per comment), so the notice can't wait.
+const ConsentNote = "Guardamos tus datos solo para gestionar tu pedido."
+
+// ConfirmWithConsent is the private reply's text: the question and the
+// notice about the data.
+func ConfirmWithConsent(liveName string, price float64) string {
+	return ConfirmText(liveName, price) + "\n\n" + ConsentNote
+}
+
+// AskChannel is asked right before closing the confirmation.
+const AskChannel = "Una última cosa: ¿prefieres que te escribamos por WhatsApp o por Messenger?"
+
+// DoneWith closes the confirmation, with the store's privacy notice when it
+// has one.
+func DoneWith(privacyURL string) string {
+	if privacyURL == "" {
+		return Done
+	}
+	return Done + " Cómo cuidamos tus datos: " + privacyURL
+}
+
+// ChannelSavedMessenger, ChannelAskWhatsApp and WhatsAppLinked answer the
+// channel question and the first WhatsApp message.
+const (
+	ChannelSavedMessenger = "Anotado: te escribimos por Messenger."
+	ChannelAskWhatsApp    = "Anotado. Para escribirte por WhatsApp necesitamos que nos escribas tú primero: toca el enlace y envía el mensaje."
+	ChannelSavedWhatsApp  = "Anotado: te escribimos por WhatsApp."
+	WhatsAppLinked        = "¡Hola! Ya ligamos este WhatsApp a tu pedido."
+	WhatsAppLinkExpired   = "Ese código de pedido ya no está activo. Escríbenos por Messenger y te ayudamos."
+)
+
+// OrderCodePattern finds an order code ("Pedido AR-7F3K") in a message.
+var OrderCodePattern = regexp.MustCompile(`(?i)\bAR-([A-Z0-9]{4})\b`)
+
+// OrderCode returns the code in text ("AR-7F3K"), or "".
+func OrderCode(text string) string {
+	m := OrderCodePattern.FindStringSubmatch(text)
+	if m == nil {
+		return ""
+	}
+	return "AR-" + strings.ToUpper(m[1])
+}
+
+// OrderText is what the wa.me link types for the buyer.
+func OrderText(code string) string { return "Pedido " + code }

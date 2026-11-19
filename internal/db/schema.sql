@@ -613,3 +613,27 @@ CREATE TABLE IF NOT EXISTS wa_sessions (
   expires_at TIMESTAMPTZ NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- CRM from the lives (2026-11-19): the ERP's contact behind each claim
+-- (andrho.live.buyer id), and the order codes of the WhatsApp button
+-- ("Pedido AR-7F3K"): when a message with the code reaches AndRho's
+-- WhatsApp, that number joins the same contact and order. The number is
+-- kept only because the buyer wrote it themselves.
+ALTER TABLE live_claims ADD COLUMN IF NOT EXISTS buyer_id INTEGER NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS live_link_codes (
+  code       TEXT PRIMARY KEY,
+  account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  claim_id   BIGINT NOT NULL REFERENCES live_claims(id) ON DELETE CASCADE,
+  page_id    TEXT NOT NULL,
+  buyer_id   INTEGER NOT NULL DEFAULT 0,
+  wa_phone   TEXT NOT NULL DEFAULT '',
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at    TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_live_link_codes_claim ON live_link_codes (claim_id);
+CREATE INDEX IF NOT EXISTS idx_live_link_codes_phone ON live_link_codes (wa_phone) WHERE wa_phone <> '';
+-- Which conversation a Messenger thread belongs to (the channel question
+-- needs the claim).
+ALTER TABLE live_threads ADD COLUMN IF NOT EXISTS claim_id BIGINT NOT NULL DEFAULT 0;

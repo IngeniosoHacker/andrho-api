@@ -98,6 +98,20 @@ contraseña, WhatsApp). Al crear la cuenta se aprovisiona lo que haga falta.
 - En camino: redes sociales, inventario, clientes, prospectos, sucursales e
   histórico de operaciones.
 
+### Venta en vivo y su CRM (desde Plataforma)
+
+Lives de Facebook (Instagram todavía no): el primer comentario con el nombre
+corto del artículo lo aparta y recibe por Messenger la pregunta con Sí/No.
+Cada línea de compra alimenta los contactos del ERP: quien nombra un
+artículo queda como **Cliente**; quien comenta otra cosa, le escribe a la
+Página o reacciona (si la tienda lo activa) queda como **Prospecto**, solo con
+su nombre. Quien solo mira el live no se puede saber: Meta no lo da. El primer
+mensaje avisa que sus datos se guardan solo para gestionar el pedido. En
+prueba: un botón "Chatear por WhatsApp" con un código de pedido, y al cerrar
+se pregunta si prefiere WhatsApp o Messenger; la próxima vez se le escribe
+por ahí, respetando las 24 h de Meta. El panel muestra clientes y prospectos
+de cada live, su medio preferido y cuántos prospectos pasaron a clientes.
+
 ### AndRho por WhatsApp (En órbita y Galaxy)
 
 Un solo número de AndRho para todas las cuentas. Cada usuario vincula su

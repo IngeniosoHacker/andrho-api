@@ -237,3 +237,41 @@ func (c *Client) InstallModules(ctx context.Context, names []string) ([]string, 
 	}
 	return todo, nil
 }
+
+// UpgradeStale upgrades the named modules that are installed with an older
+// version than the one in the image (a new AndRho release: new fields, a
+// migration). It returns the ones it upgraded. Like InstallModules it needs
+// an administrator login and may take minutes.
+func (c *Client) UpgradeStale(ctx context.Context, names []string) ([]string, error) {
+	var mods []struct {
+		ID        int    `json:"id"`
+		Name      string `json:"name"`
+		State     string `json:"state"`
+		Installed any    `json:"latest_version"`    // the version in the database
+		OnDisk    any    `json:"installed_version"` // the version in the image
+	}
+	if err := c.SearchRead(ctx, "ir.module.module", []any{[]any{"name", "in", names}, []any{"state", "=", "installed"}},
+		[]string{"name", "state", "latest_version", "installed_version"}, "", 0, &mods); err != nil {
+		return nil, err
+	}
+	ids, todo := []int{}, []string{}
+	for _, m := range mods {
+		if Str(m.Installed) != Str(m.OnDisk) && Str(m.OnDisk) != "" {
+			ids = append(ids, m.ID)
+			todo = append(todo, m.Name)
+		}
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	uid, err := c.Authenticate(ctx)
+	if err != nil {
+		return nil, err
+	}
+	err = c.rpcWith(ctx, installHTTP, "object", "execute_kw",
+		[]any{c.DB, uid, c.Password, "ir.module.module", "button_immediate_upgrade", []any{ids}, map[string]any{}}, nil)
+	if err != nil {
+		return nil, err
+	}
+	return todo, nil
+}

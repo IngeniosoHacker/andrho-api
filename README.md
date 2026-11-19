@@ -85,6 +85,9 @@ already owns and migrates its own schema.
 | `WHATSAPP_TOKEN`            | — | A System User's permanent token with `whatsapp_business_messaging` (founder/meta-cuenta-oficial.md §8). Secret. |
 | `WHATSAPP_PHONE_NUMBER_ID`  | — | The phone number id of AndRho's number (today: Meta's Cloud API test number). |
 | `WHATSAPP_BUSINESS_ACCOUNT_ID` | — | The WhatsApp Business Account id (templates). |
+| `LIVE_WHATSAPP_TEST`        | `false` | Offers the live sales' "Chatear por WhatsApp" button (and the channel question). It points to AndRho's number: **test only** until AndRho is a Meta Tech Provider and each store connects its own. |
+| `WHATSAPP_TEMPLATE_LIVE_CONFIRM` | — | An approved template (`{{1}}` item, `{{2}}` price) to ask a buyer who prefers WhatsApp after the 24 h window. Empty: only inside the window. |
+| `WHATSAPP_TEMPLATE_LANG`    | `es` | The template's language code. |
 
 In development, a `.env` file is loaded automatically (via `godotenv`) if
 present; its absence is not an error. In production (Railway), env vars are
@@ -435,6 +438,30 @@ rules (`internal/live`):
 - `GET /erp/locate?q=` is the dashboard's search bar (`internal/locate`):
   synonyms in Spanish ("productos" → Inventario › Productos, "en vivo" → the
   lives); `POST /erp/sso {next}` opens the ERP right there.
+
+**CRM from the lives** (account features `live_crm`, on by default with
+live sales, and `live_whatsapp`, off and only offered with
+`LIVE_WHATSAPP_TEST`; `PUT /account/features/:feature`):
+
+- A comment that names an item makes its author a customer in the ERP (tag
+  "Cliente", linked to the line and the live); comments without a match,
+  messages to the Page and reactions (setting `capture_reactions`, off by
+  default) make prospects ("Prospecto") with only the name and ids Meta
+  gives. People who only watch a live aren't in Meta's API.
+- The private reply carries a short notice about the data; "Sí" records the
+  consent's date and channel on the contact. `privacy_url` (setting) closes
+  the conversation.
+- With `live_whatsapp`: a third button, "Chatear por WhatsApp" (wa.me to
+  AndRho's number with "Pedido AR-XXXX" typed, `live_link_codes`). That
+  message joins the number to the same contact and order (only because the
+  buyer wrote it), and the buyer can confirm and give shipping details
+  there. Right before closing, AndRho asks "¿WhatsApp o Messenger?" and saves
+  it on the contact; next time a buyer who prefers WhatsApp is also asked
+  there (inside 24 h, or with `WHATSAPP_TEMPLATE_LIVE_CONFIRM`).
+- `GET /live/sessions/:id/people` (a live's customers and prospects),
+  `GET /live/contacts?kind=` (all, with preferred channel and conversion).
+- Opening En vivo upgrades the ERP's `andrho_core` and `andrho_live_sale`
+  when the image has a newer version (`odoo.UpgradeStale`).
 
 End-to-end test (real Postgres and Odoo, fake Graph API):
 `LIVE_IT_PG=… LIVE_IT_ODOO=… LIVE_IT_ODOO_DB=… go test -tags integration -run TestLiveEndToEnd ./internal/handlers/`.

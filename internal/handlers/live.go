@@ -113,8 +113,10 @@ func (h *Handler) LiveStatus(c *gin.Context) {
 		out["erp"] = "connected"
 		if cl.HasModel(ctx, liveModel) {
 			out["erp"] = "ready"
+			h.upgradeLiveModules(claims.AccountID)
 		}
 	}
+	out["whatsapp_test"] = h.featureOn(ctx, claims.AccountID, featureLiveWhatsApp)
 	c.JSON(http.StatusOK, out)
 }
 
@@ -787,6 +789,16 @@ func (h *Handler) LiveSaveSettings(c *gin.Context) {
 				respondError(c, http.StatusBadRequest, "la palabra para pedir va de 1 a 3 palabras, sin emojis, hasta 20 letras")
 				return
 			}
+		case "capture_reactions":
+			if v != "1" && v != "0" {
+				respondError(c, http.StatusBadRequest, k+" es 1 o 0")
+				return
+			}
+		case "privacy_url":
+			if v != "" && (!strings.HasPrefix(v, "https://") || len(v) > 300 || strings.ContainsAny(v, " \n\t")) {
+				respondError(c, http.StatusBadRequest, "la política de privacidad va como enlace https://")
+				return
+			}
 		case "loyalty_min":
 			if n, err := strconv.Atoi(v); err != nil || n < 1 || n > 100 {
 				respondError(c, http.StatusBadRequest, "las compras para ser frecuente van de 1 a 100")
@@ -977,7 +989,10 @@ func (h *Handler) handleMetaEvents(ctx context.Context, wh meta.Webhook) {
 			case m.Message != nil && m.Message.QuickReply != nil:
 				h.livePostback(ctx, page, psid, m.Message.QuickReply.Payload)
 			case m.Message != nil && m.Message.Text != "":
-				h.liveText(ctx, page, psid, m.Message.Text)
+				if !h.liveText(ctx, page, psid, m.Message.Text) {
+					// Someone writing to the Page: a prospect.
+					h.pageMessageProspect(ctx, page, psid)
+				}
 			}
 		}
 	}
