@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -107,14 +108,53 @@ func hashCode(code string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// codeGuesses limits wrong codes per number: a code links a phone to a
+// user (or to an order), so nobody may try them by the thousand.
+type codeGuesses struct {
+	mu   sync.Mutex
+	bad  map[string][]time.Time
+	max  int
+	span time.Duration
+}
+
+var waGuesses = &codeGuesses{bad: map[string][]time.Time{}, max: 5, span: time.Hour}
+
+// blocked reports whether phone used up its wrong codes for now.
+func (g *codeGuesses) blocked(phone string, now time.Time) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	recent := g.bad[phone][:0]
+	for _, t := range g.bad[phone] {
+		if now.Sub(t) < g.span {
+			recent = append(recent, t)
+		}
+	}
+	g.bad[phone] = recent
+	return len(recent) >= g.max
+}
+
+// miss records a wrong code from phone.
+func (g *codeGuesses) miss(phone string, now time.Time) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.bad[phone] = append(g.bad[phone], now)
+}
+
+const waTooManyCodes = "Demasiados códigos que no sirven. Espera una hora e inténtalo de nuevo."
+
 // waLinkUser takes "Vincular AndRho ABC123" sent from the number to link.
 func (h *Handler) waLinkUser(ctx context.Context, m whatsapp.Message) bool {
 	match := waLinkPattern.FindStringSubmatch(m.Text)
 	if match == nil {
 		return false
 	}
+	if waGuesses.blocked(m.From, time.Now()) {
+		h.waSay(ctx, m.From, waTooManyCodes)
+		return true
+	}
 	userID, err := db.ConsumeWALinkCode(ctx, h.Accounts, hashCode(match[1]))
 	if err != nil {
+		waGuesses.miss(m.From, time.Now())
 		h.waSay(ctx, m.From, "Ese código ya no sirve. Pide uno nuevo en tu panel: Configuración → Tu WhatsApp.")
 		return true
 	}
