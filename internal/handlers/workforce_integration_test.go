@@ -196,7 +196,9 @@ func TestWorkforceEndToEnd(t *testing.T) {
 		}
 		time.Sleep(900 * time.Millisecond) // handled in the background
 	}
-	text := func(s string) map[string]any { return map[string]any{"type": "text", "text": map[string]any{"body": s}} }
+	text := func(s string) map[string]any {
+		return map[string]any{"type": "text", "text": map[string]any{"body": s}}
+	}
 	tap := func(id string) map[string]any {
 		return map[string]any{"type": "interactive", "interactive": map[string]any{"type": "button_reply", "button_reply": map[string]any{"id": id, "title": "x"}}}
 	}
