@@ -58,9 +58,11 @@ func (h *Handler) liveFeature(ctx context.Context, accountID string) (featureSta
 //	live_crm       buyers and prospects in the ERP's contacts; on by
 //	               default while live sales are on
 //	live_whatsapp  the "Chatear por WhatsApp" button and the channel
-//	               question; off by default, and only offered while
-//	               LIVE_WHATSAPP_TEST is on (it uses AndRho's number until
-//	               AndRho is a Tech Provider)
+//	               question, on the store's own number; offered only once
+//	               the store connected it (whatsapp_business.go), and then
+//	               on by default. In the test mode (LIVE_WHATSAPP_TEST,
+//	               never in production) it can use AndRho's number, off
+//	               by default
 const (
 	featureLiveCRM      = "live_crm"
 	featureLiveWhatsApp = "live_whatsapp"
@@ -91,14 +93,18 @@ func (h *Handler) liveCRMFeature(ctx context.Context, accountID string) (feature
 	return h.subFeature(ctx, accountID, featureLiveCRM, live.Enabled, true)
 }
 
-// liveWhatsAppFeature: available with live sales on, AndRho's WhatsApp on
-// and LIVE_WHATSAPP_TEST.
+// liveWhatsAppFeature: available with live sales on and a number for the
+// buyers: the store's own (on by default) or, testing, AndRho's.
 func (h *Handler) liveWhatsAppFeature(ctx context.Context, accountID string) (featureState, error) {
 	live, err := h.liveFeature(ctx, accountID)
 	if err != nil {
 		return featureState{}, err
 	}
-	return h.subFeature(ctx, accountID, featureLiveWhatsApp, live.Enabled && h.WA.Enabled() && h.Cfg.LiveWhatsAppTest, false)
+	if !live.Enabled {
+		return featureState{}, nil
+	}
+	line, ok := h.buyerLine(ctx, accountID)
+	return h.subFeature(ctx, accountID, featureLiveWhatsApp, ok, ok && line.own())
 }
 
 func (h *Handler) featureOn(ctx context.Context, accountID, feature string) bool {

@@ -117,6 +117,11 @@ func (h *Handler) LiveStatus(c *gin.Context) {
 		}
 	}
 	out["whatsapp_test"] = h.featureOn(ctx, claims.AccountID, featureLiveWhatsApp)
+	// The store's own WhatsApp: connected (its name and number with the
+	// buyers), or offered ("Conecta tu WhatsApp").
+	line, hasLine := h.buyerLine(ctx, claims.AccountID)
+	out["whatsapp_own"] = hasLine && line.own()
+	out["whatsapp_connect"] = h.signupOn() && !(hasLine && line.own())
 	c.JSON(http.StatusOK, out)
 }
 

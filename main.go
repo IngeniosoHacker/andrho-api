@@ -80,6 +80,9 @@ func main() {
 	// Venta en vivo: lives on air are read again after a restart, and
 	// unanswered confirmations pass to the next commenter.
 	go h.LiveLoop(ctx)
+	// Each store's own WhatsApp: name, quality, payment and templates
+	// (only with WHATSAPP_EMBEDDED_SIGNUP_ENABLED).
+	go h.WhatsAppCheckLoop(ctx)
 	// Client sites: create each site-<account_id> service in Railway's
 	// Clients project and mark it live once deployed (internal/provision/sites.go).
 	go h.Provision.SiteLoop(ctx, time.Minute, h.ProvisionAccount)

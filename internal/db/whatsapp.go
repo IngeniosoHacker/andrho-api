@@ -115,18 +115,19 @@ func UserByWhatsApp(ctx context.Context, pool *pgxpool.Pool, phone string) (WAUs
 	return u, err
 }
 
-// TouchWAInbound records a message from phone (opens the 24 h window).
-func TouchWAInbound(ctx context.Context, pool *pgxpool.Pool, phone string, at time.Time) error {
+// TouchWAInbound records a message from phone to the business number biz
+// (” = AndRho's): it opens the 24 h window between the two.
+func TouchWAInbound(ctx context.Context, pool *pgxpool.Pool, biz, phone string, at time.Time) error {
 	_, err := pool.Exec(ctx,
-		`INSERT INTO wa_inbound (phone, last_at) VALUES ($1, $2)
-		 ON CONFLICT (phone) DO UPDATE SET last_at = GREATEST(wa_inbound.last_at, $2)`, phone, at)
+		`INSERT INTO wa_inbound (business_phone_id, phone, last_at) VALUES ($1, $2, $3)
+		 ON CONFLICT (business_phone_id, phone) DO UPDATE SET last_at = GREATEST(wa_inbound.last_at, $3)`, biz, phone, at)
 	return err
 }
 
-// WALastInbound is phone's last message (nil = never wrote).
-func WALastInbound(ctx context.Context, pool *pgxpool.Pool, phone string) (*time.Time, error) {
+// WALastInbound is phone's last message to biz (nil = never wrote).
+func WALastInbound(ctx context.Context, pool *pgxpool.Pool, biz, phone string) (*time.Time, error) {
 	var at time.Time
-	err := pool.QueryRow(ctx, `SELECT last_at FROM wa_inbound WHERE phone = $1`, phone).Scan(&at)
+	err := pool.QueryRow(ctx, `SELECT last_at FROM wa_inbound WHERE business_phone_id = $1 AND phone = $2`, biz, phone).Scan(&at)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -136,31 +137,33 @@ func WALastInbound(ctx context.Context, pool *pgxpool.Pool, phone string) (*time
 	return &at, nil
 }
 
-// WASession is what AndRho waits for from a number.
+// WASession is what AndRho waits for from a number, on a business number
+// (Biz ” = AndRho's).
 type WASession struct {
-	Phone, AccountID, Kind string
-	Data                   json.RawMessage
-	ExpiresAt              time.Time
+	Biz, Phone, AccountID, Kind string
+	Data                        json.RawMessage
+	ExpiresAt                   time.Time
 }
 
-// SaveWASession sets (replaces) phone's pending conversation.
+// SaveWASession sets (replaces) phone's pending conversation with s.Biz.
 func SaveWASession(ctx context.Context, pool *pgxpool.Pool, s WASession) error {
 	if len(s.Data) == 0 {
 		s.Data = json.RawMessage(`{}`)
 	}
 	_, err := pool.Exec(ctx,
-		`INSERT INTO wa_sessions (phone, account_id, kind, data, expires_at) VALUES ($1, NULLIF($2, '')::uuid, $3, $4, $5)
-		 ON CONFLICT (phone) DO UPDATE SET account_id = NULLIF($2, '')::uuid, kind = $3, data = $4, expires_at = $5, updated_at = now()`,
-		s.Phone, s.AccountID, s.Kind, s.Data, s.ExpiresAt)
+		`INSERT INTO wa_sessions (business_phone_id, phone, account_id, kind, data, expires_at) VALUES ($1, $2, NULLIF($3, '')::uuid, $4, $5, $6)
+		 ON CONFLICT (business_phone_id, phone) DO UPDATE SET account_id = NULLIF($3, '')::uuid, kind = $4, data = $5, expires_at = $6, updated_at = now()`,
+		s.Biz, s.Phone, s.AccountID, s.Kind, s.Data, s.ExpiresAt)
 	return err
 }
 
-// GetWASession reads phone's pending conversation; ErrNotFound when there's
-// none or it expired.
-func GetWASession(ctx context.Context, pool *pgxpool.Pool, phone string) (WASession, error) {
-	s := WASession{Phone: phone}
+// GetWASession reads phone's pending conversation with biz; ErrNotFound
+// when there's none or it expired.
+func GetWASession(ctx context.Context, pool *pgxpool.Pool, biz, phone string) (WASession, error) {
+	s := WASession{Biz: biz, Phone: phone}
 	var account *string
-	err := pool.QueryRow(ctx, `SELECT account_id::text, kind, data, expires_at FROM wa_sessions WHERE phone = $1 AND expires_at > now()`, phone).
+	err := pool.QueryRow(ctx, `SELECT account_id::text, kind, data, expires_at FROM wa_sessions
+		WHERE business_phone_id = $1 AND phone = $2 AND expires_at > now()`, biz, phone).
 		Scan(&account, &s.Kind, &s.Data, &s.ExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return s, ErrNotFound
@@ -171,8 +174,8 @@ func GetWASession(ctx context.Context, pool *pgxpool.Pool, phone string) (WASess
 	return s, err
 }
 
-// DeleteWASession forgets phone's pending conversation.
-func DeleteWASession(ctx context.Context, pool *pgxpool.Pool, phone string) error {
-	_, err := pool.Exec(ctx, `DELETE FROM wa_sessions WHERE phone = $1`, phone)
+// DeleteWASession forgets phone's pending conversation with biz.
+func DeleteWASession(ctx context.Context, pool *pgxpool.Pool, biz, phone string) error {
+	_, err := pool.Exec(ctx, `DELETE FROM wa_sessions WHERE business_phone_id = $1 AND phone = $2`, biz, phone)
 	return err
 }

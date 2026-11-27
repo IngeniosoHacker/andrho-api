@@ -89,7 +89,7 @@ func whatsAppControl(commands int, own bool) func(*Capabilities, int) {
 		if commands > c.WhatsAppCommands {
 			c.WhatsAppCommands = commands
 		}
-		c.OwnNumber = c.OwnNumber || own
+		c.ControlOwnNumber = c.ControlOwnNumber || own
 	}
 }
 

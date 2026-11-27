@@ -33,21 +33,59 @@ import (
 // waRoute handles a message if it's for it.
 type waRoute func(ctx context.Context, m whatsapp.Message) bool
 
-// waRoutes, in order. Features add theirs before waKnownUser.
+// waRoutes are AndRho's number's routes, in order. Features add theirs
+// before waKnownUser. Buyers only reach AndRho's number in the test mode
+// (LIVE_WHATSAPP_TEST outside production); otherwise they write to the
+// store's own number (waStoreMessages).
 func (h *Handler) waRoutes() []waRoute {
-	return []waRoute{h.waLinkUser, h.waLive, h.waWorkforce, h.waKnownUser}
+	routes := []waRoute{h.waLinkUser}
+	if h.Cfg.LiveWhatsAppTest {
+		test := waLine{wa: h.WA, biz: waControl}
+		routes = append(routes, func(ctx context.Context, m whatsapp.Message) bool { return h.waLive(ctx, test, m) })
+	}
+	return append(routes, h.waWorkforce, h.waKnownUser)
 }
 
-// handleWhatsApp handles a WhatsApp webhook (after the signature check).
+// handleWhatsApp handles a WhatsApp webhook (after the signature check):
+// each change goes by the number it's about.
 func (h *Handler) handleWhatsApp(ctx context.Context, wh whatsapp.Webhook) {
-	if !h.WA.Enabled() {
-		return
+	for _, ch := range wh.Changes() {
+		if ch.Field != "messages" {
+			if h.Cfg.WhatsAppEmbeddedSignup {
+				h.waAccountEvent(ctx, ch)
+			}
+			continue
+		}
+		pnid := ch.Value.Metadata.PhoneNumberID
+		switch {
+		case pnid == "":
+		case h.WA.Enabled() && pnid == h.WA.PhoneNumberID:
+			h.waControlMessages(ctx, ch.Value.Incoming())
+		default:
+			w, err := db.WhatsAppAccountByPhone(ctx, h.Accounts, pnid)
+			l, ok := waLine{}, false
+			if err == nil && h.Cfg.WhatsAppEmbeddedSignup {
+				l, ok = h.lineFor(w)
+			}
+			if !ok {
+				log.Printf("whatsapp: webhook for an unknown number %s (ignored)", pnid)
+				continue
+			}
+			if ch.Value.PaymentFailed() {
+				_ = db.SetWhatsAppStatus(ctx, h.Accounts, w.ID, db.WANoPayment, "Falta el método de pago en WhatsApp Manager.")
+			}
+			h.waStoreMessages(ctx, l, ch.Value.Incoming())
+		}
 	}
-	for _, m := range wh.Messages(h.WA.PhoneNumberID) {
+}
+
+// waControlMessages: AndRho's number, the control channel.
+func (h *Handler) waControlMessages(ctx context.Context, msgs []whatsapp.Message) {
+	for _, m := range msgs {
 		if m.From == "" {
 			continue
 		}
-		if err := db.TouchWAInbound(ctx, h.Accounts, m.From, m.At); err != nil {
+		if err := db.TouchWAInbound(ctx, h.Accounts, waControl, m.From, m.At); err != nil {
 			log.Printf("whatsapp: inbound %s: %v", maskPhone(m.From), err)
 		}
 		_ = h.WA.MarkRead(ctx, m.ID)
@@ -60,6 +98,23 @@ func (h *Handler) handleWhatsApp(ctx context.Context, wh whatsapp.Webhook) {
 		}
 		if !taken {
 			h.waSay(ctx, m.From, waStranger)
+		}
+	}
+}
+
+// waStoreMessages: a store's own number. AndRho answers only what's about
+// a live sale; anything else is the store's own conversation (on its phone
+// with Coexistence) and gets no answer from AndRho.
+func (h *Handler) waStoreMessages(ctx context.Context, l waLine, msgs []whatsapp.Message) {
+	for _, m := range msgs {
+		if m.From == "" {
+			continue
+		}
+		if err := db.TouchWAInbound(ctx, h.Accounts, l.biz, m.From, m.At); err != nil {
+			log.Printf("whatsapp: inbound %s on %s: %v", maskPhone(m.From), l.biz, err)
+		}
+		if h.waLive(ctx, l, m) {
+			_ = l.wa.MarkRead(ctx, m.ID)
 		}
 	}
 }

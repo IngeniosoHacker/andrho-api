@@ -81,7 +81,9 @@ contraseña, WhatsApp). Al crear la cuenta se aprovisiona lo que haga falta.
   apps de Odoo que pidan sus módulos (punto de venta, compras, contabilidad,
   producción, CRM, calendario, planilla, envíos, vencimientos).
 - **Sitio web**, hecho por Creators, con el rastreador de AndRho incluido.
-- **WhatsApp Business**, conectado a AndRho.
+- **WhatsApp Business del negocio**: la tienda conecta su propio número desde
+  el panel (Configuración → WhatsApp de tu negocio) y sus compradores ven su
+  nombre y su número, nunca los de AndRho.
 - **Facebook e Instagram** (Meta), para medir las redes junto con las ventas.
 
 ### Panel del cliente (/dashboard/)
@@ -106,15 +108,28 @@ Cada línea de compra alimenta los contactos del ERP: quien nombra un
 artículo queda como **Cliente**; quien comenta otra cosa, le escribe a la
 Página o reacciona (si la tienda lo activa) queda como **Prospecto**, solo con
 su nombre. Quien solo mira el live no se puede saber: Meta no lo da. El primer
-mensaje avisa que sus datos se guardan solo para gestionar el pedido. En
-prueba: un botón "Chatear por WhatsApp" con un código de pedido, y al cerrar
-se pregunta si prefiere WhatsApp o Messenger; la próxima vez se le escribe
-por ahí, respetando las 24 h de Meta. El panel muestra clientes y prospectos
-de cada live, su medio preferido y cuántos prospectos pasaron a clientes.
+mensaje avisa que sus datos se guardan solo para gestionar el pedido. Si la
+tienda conectó su WhatsApp: un botón "Chatear por WhatsApp" a **su propio
+número** con un código de pedido, y al cerrar se pregunta si prefiere WhatsApp
+o Messenger; la próxima vez se le escribe por ahí, respetando las 24 h de
+Meta (fuera de ellas, con un mensaje aprobado por Meta en la cuenta de la
+tienda, que Meta le cobra a la tienda). Sin WhatsApp conectado, todo va por
+Messenger. El panel muestra clientes y prospectos de cada live, su medio
+preferido y cuántos prospectos pasaron a clientes.
+
+### El WhatsApp de la tienda (desde Plataforma)
+
+Cada tienda conecta su número con el inicio de sesión de Meta: uno nuevo, o
+el que ya usa en la app WhatsApp Business (sigue funcionando en su celular;
+AndRho no guarda sus chats). El panel muestra el nombre visible y si Meta ya
+lo aprobó, la calidad del número, si falta el método de pago (se agrega en
+WhatsApp Manager, a nombre de la tienda) y un botón para desconectarlo. Hasta
+que Meta verifique a AndRho como proveedor, solo se puede conectar en prueba.
 
 ### AndRho por WhatsApp (En órbita y Galaxy)
 
-Un solo número de AndRho para todas las cuentas. Cada usuario vincula su
+El número de AndRho es solo para hablar con AndRho (el dueño y su equipo) y
+para los avisos de AndRho a sus usuarios; nunca les escribe a compradores. Cada usuario vincula su
 propio número desde su panel (Configuración → Tu WhatsApp: manda un código
 desde su WhatsApp) y, a partir de ahí, AndRho lo reconoce y actúa con los
 permisos de su rol, nunca más. Hoy funciona con el número de prueba de Meta

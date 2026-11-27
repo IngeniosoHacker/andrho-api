@@ -659,3 +659,71 @@ CREATE TABLE IF NOT EXISTS work_site_supervisors (
   PRIMARY KEY (site_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_work_site_supervisors_user ON work_site_supervisors (user_id);
+
+-- Each store's own WhatsApp (2026-11-27, docs/auditoria-whatsapp-por-cliente.md):
+-- everything that goes to buyers leaves from the store's number, connected
+-- with Embedded Signup; AndRho's number is only the control channel. One row
+-- per connected number. token (the store's business token) and pin (the
+-- number's two-step PIN) are sealed with SECRETS_KEY and never logged.
+-- status: pendiente | activo | sin_pago | desconectado.
+CREATE TABLE IF NOT EXISTS whatsapp_accounts (
+  id                   UUID PRIMARY KEY,
+  account_id           UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  waba_id              TEXT NOT NULL,
+  phone_number_id      TEXT NOT NULL,
+  business_id          TEXT NOT NULL DEFAULT '',
+  display_phone_number TEXT NOT NULL DEFAULT '',
+  verified_name        TEXT NOT NULL DEFAULT '',
+  name_status          TEXT NOT NULL DEFAULT '',
+  quality_rating       TEXT NOT NULL DEFAULT '',
+  coexistence          BOOLEAN NOT NULL DEFAULT false,
+  status               TEXT NOT NULL DEFAULT 'pendiente',
+  status_detail        TEXT NOT NULL DEFAULT '',
+  token                BYTEA,
+  pin                  BYTEA,
+  synced_at            TIMESTAMPTZ,
+  connected_by         UUID,
+  connected_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  disconnected_at      TIMESTAMPTZ,
+  checked_at           TIMESTAMPTZ,
+  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- A number serves one account at a time; an account has one live number.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_whatsapp_accounts_phone ON whatsapp_accounts (phone_number_id) WHERE status <> 'desconectado';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_whatsapp_accounts_account ON whatsapp_accounts (account_id) WHERE status <> 'desconectado';
+CREATE INDEX IF NOT EXISTS idx_whatsapp_accounts_waba ON whatsapp_accounts (waba_id);
+
+-- The templates AndRho creates in a store's WhatsApp account; used only
+-- while status = 'APPROVED'. category is the one Meta gave.
+CREATE TABLE IF NOT EXISTS whatsapp_templates (
+  wa_account_id UUID NOT NULL REFERENCES whatsapp_accounts(id) ON DELETE CASCADE,
+  name          TEXT NOT NULL,
+  language      TEXT NOT NULL DEFAULT 'es',
+  meta_id       TEXT NOT NULL DEFAULT '',
+  category      TEXT NOT NULL DEFAULT '',
+  status        TEXT NOT NULL DEFAULT 'PENDING',
+  reason        TEXT NOT NULL DEFAULT '',
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (wa_account_id, name, language)
+);
+
+-- Meta's 24 h window and AndRho's pending conversation are per pair of
+-- numbers: the business' (its phone_number_id; '' = AndRho's own number,
+-- which is what every older row was) and the person's.
+ALTER TABLE wa_inbound ADD COLUMN IF NOT EXISTS business_phone_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE wa_sessions ADD COLUMN IF NOT EXISTS business_phone_id TEXT NOT NULL DEFAULT '';
+DO $$
+BEGIN
+  IF (SELECT count(*) FROM information_schema.key_column_usage
+      WHERE table_name = 'wa_inbound' AND constraint_name = 'wa_inbound_pkey') = 1 THEN
+    ALTER TABLE wa_inbound DROP CONSTRAINT wa_inbound_pkey;
+    ALTER TABLE wa_inbound ADD PRIMARY KEY (business_phone_id, phone);
+  END IF;
+  IF (SELECT count(*) FROM information_schema.key_column_usage
+      WHERE table_name = 'wa_sessions' AND constraint_name = 'wa_sessions_pkey') = 1 THEN
+    ALTER TABLE wa_sessions DROP CONSTRAINT wa_sessions_pkey;
+    ALTER TABLE wa_sessions ADD PRIMARY KEY (business_phone_id, phone);
+  END IF;
+END $$;
+-- The store number an order code belongs to: the code only works there.
+ALTER TABLE live_link_codes ADD COLUMN IF NOT EXISTS business_phone_id TEXT NOT NULL DEFAULT '';

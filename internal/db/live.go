@@ -373,10 +373,12 @@ func SetLiveClaimBuyerID(ctx context.Context, pool *pgxpool.Pool, id int64, buye
 // LiveLinkCode mirrors live_link_codes.
 type LiveLinkCode struct {
 	Code, AccountID, PageID, WAPhone string
-	ClaimID                          int64
-	BuyerID                          int
-	ExpiresAt                        time.Time
-	UsedAt                           *time.Time
+	// Biz is the store number the code works on ('' = AndRho's, test).
+	Biz       string
+	ClaimID   int64
+	BuyerID   int
+	ExpiresAt time.Time
+	UsedAt    *time.Time
 }
 
 // CreateLiveLinkCode gives a claim its order code (one per claim: an
@@ -386,8 +388,8 @@ func CreateLiveLinkCode(ctx context.Context, pool *pgxpool.Pool, l LiveLinkCode)
 		return old, true, nil
 	}
 	tag, err := pool.Exec(ctx,
-		`INSERT INTO live_link_codes (code, account_id, claim_id, page_id, buyer_id, expires_at) VALUES ($1, $2, $3, $4, $5, $6)
-		 ON CONFLICT DO NOTHING`, l.Code, l.AccountID, l.ClaimID, l.PageID, l.BuyerID, l.ExpiresAt)
+		`INSERT INTO live_link_codes (code, account_id, claim_id, page_id, buyer_id, expires_at, business_phone_id) VALUES ($1, $2, $3, $4, $5, $6, $7)
+		 ON CONFLICT DO NOTHING`, l.Code, l.AccountID, l.ClaimID, l.PageID, l.BuyerID, l.ExpiresAt, l.Biz)
 	if err != nil {
 		return l, false, err
 	}
@@ -400,11 +402,11 @@ func CreateLiveLinkCode(ctx context.Context, pool *pgxpool.Pool, l LiveLinkCode)
 	return l, true, nil
 }
 
-const linkCols = `code, account_id::text, claim_id, page_id, buyer_id, wa_phone, expires_at, used_at`
+const linkCols = `code, account_id::text, claim_id, page_id, buyer_id, wa_phone, expires_at, used_at, business_phone_id`
 
 func scanLink(row pgx.Row) (LiveLinkCode, error) {
 	var l LiveLinkCode
-	err := row.Scan(&l.Code, &l.AccountID, &l.ClaimID, &l.PageID, &l.BuyerID, &l.WAPhone, &l.ExpiresAt, &l.UsedAt)
+	err := row.Scan(&l.Code, &l.AccountID, &l.ClaimID, &l.PageID, &l.BuyerID, &l.WAPhone, &l.ExpiresAt, &l.UsedAt, &l.Biz)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return l, ErrNotFound
 	}
@@ -421,14 +423,16 @@ func GetLiveLinkCode(ctx context.Context, pool *pgxpool.Pool, code string) (Live
 	return scanLink(pool.QueryRow(ctx, `SELECT `+linkCols+` FROM live_link_codes WHERE code = $1 AND expires_at > now()`, code))
 }
 
-// UseLiveLinkCode records the WhatsApp number that sent the code.
-func UseLiveLinkCode(ctx context.Context, pool *pgxpool.Pool, code, phone string) error {
-	_, err := pool.Exec(ctx, `UPDATE live_link_codes SET wa_phone = $2, used_at = COALESCE(used_at, now()) WHERE code = $1`, code, phone)
+// UseLiveLinkCode records the WhatsApp number that sent the code and the
+// store number it reached.
+func UseLiveLinkCode(ctx context.Context, pool *pgxpool.Pool, code, biz, phone string) error {
+	_, err := pool.Exec(ctx, `UPDATE live_link_codes SET wa_phone = $3, business_phone_id = $2, used_at = COALESCE(used_at, now()) WHERE code = $1`, code, biz, phone)
 	return err
 }
 
 // LatestLinkForPhone is the newest order a WhatsApp number linked (for its
 // replies without a code).
-func LatestLinkForPhone(ctx context.Context, pool *pgxpool.Pool, phone string) (LiveLinkCode, error) {
-	return scanLink(pool.QueryRow(ctx, `SELECT `+linkCols+` FROM live_link_codes WHERE wa_phone = $1 ORDER BY used_at DESC NULLS LAST LIMIT 1`, phone))
+func LatestLinkForPhone(ctx context.Context, pool *pgxpool.Pool, biz, phone string) (LiveLinkCode, error) {
+	return scanLink(pool.QueryRow(ctx, `SELECT `+linkCols+` FROM live_link_codes WHERE business_phone_id = $1 AND wa_phone = $2
+		ORDER BY used_at DESC NULLS LAST LIMIT 1`, biz, phone))
 }

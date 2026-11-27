@@ -146,6 +146,10 @@ type Provisioner struct {
 	Sites sites.Config
 	// Notify tells the account when its ERP is ready (nil: nobody).
 	Notify *notify.Notifier
+	// WhatsAppSignup: the store connects its own number with Embedded
+	// Signup from the dashboard (WHATSAPP_EMBEDDED_SIGNUP_ENABLED); the
+	// whatsapp job waits for it instead of registering on the VPS.
+	WhatsAppSignup bool
 }
 
 // Statuses.
@@ -155,7 +159,10 @@ const (
 	StatusDone        = "listo"
 	StatusWaitingVPS  = "esperando_vps"
 	StatusWaitingMeta = "esperando_meta"
-	StatusError       = "error"
+	// StatusWaitingClient: the store has to do something (connect its
+	// WhatsApp from the dashboard).
+	StatusWaitingClient = "esperando_cliente"
+	StatusError         = "error"
 )
 
 // Plan creates one job per service req asks for.
@@ -174,7 +181,11 @@ func (p *Provisioner) Plan(ctx context.Context, acc Account, req Request, brief 
 		if !phoneRe.MatchString(req.WhatsApp) {
 			return nil, fmt.Errorf("provision: invalid WhatsApp number")
 		}
-		specs = append(specs, spec{"whatsapp", StatusPending, "Tu número en la solución de WhatsApp de AndRho", map[string]string{"phone": req.WhatsApp}})
+		if p.WhatsAppSignup {
+			specs = append(specs, spec{"whatsapp", StatusWaitingClient, WhatsAppConnectDetail, map[string]string{"phone": req.WhatsApp}})
+		} else {
+			specs = append(specs, spec{"whatsapp", StatusPending, "Tu número en la solución de WhatsApp de AndRho", map[string]string{"phone": req.WhatsApp}})
+		}
 	}
 	if req.WebPage != nil && *req.WebPage {
 		specs = append(specs, spec{"website", StatusPending, "Tu sitio web, hecho por Creators", brief})
@@ -311,6 +322,11 @@ func (p *Provisioner) Run(ctx context.Context, acc Account, j db.ProvisioningJob
 		p.MigrateData(ctx, acc)
 
 	case "whatsapp":
+		if p.WhatsAppSignup {
+			// The store connects its number itself (Embedded Signup).
+			set(StatusWaitingClient, WhatsAppConnectDetail, nil, false)
+			return
+		}
 		if !p.VPS.Enabled() {
 			set(StatusWaitingVPS, "Registramos tu número en cuanto el servidor de AndRho esté conectado.", nil, false)
 			return
@@ -388,11 +404,16 @@ func str(v any) string {
 	return s
 }
 
+// WhatsAppConnectDetail is the whatsapp job's text while it waits for the
+// store.
+const WhatsAppConnectDetail = "Conecta tu WhatsApp desde el panel: Configuración → WhatsApp de tu negocio. Tus compradores verán tu nombre y tu número."
+
 func jobEventText(kind, status string) string {
 	names := map[string]string{"erp": "ERP", "whatsapp": "WhatsApp", "website": "Sitio web", "meta": "Facebook e Instagram"}
 	states := map[string]string{
 		StatusRunning: "en proceso", StatusDone: "listo", StatusWaitingVPS: "esperando el servidor",
 		StatusWaitingMeta: "esperando a Meta", StatusError: "con error, se reintentará",
+		StatusWaitingClient: "esperando que lo conectes",
 	}
 	return names[kind] + ": " + states[status]
 }

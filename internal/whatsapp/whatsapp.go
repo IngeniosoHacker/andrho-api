@@ -1,7 +1,9 @@
-// Package whatsapp talks to the WhatsApp Cloud API with AndRho's own number
-// (VPS/whatsapp/README.md, /root/README.md §2.2): the control channel where
-// people of a client account write to AndRho, and, while AndRho is not a
-// Meta Tech Provider, the test stand-in for a store's number in live sales.
+// Package whatsapp talks to the WhatsApp Cloud API. A Client is one
+// number: AndRho's own (New, from WHATSAPP_*), only for the control channel
+// where people of a client account write to AndRho; or a store's own
+// number (ForAccount, business.go), connected with Embedded Signup, for
+// everything that goes to its buyers. A buyer never gets AndRho's number,
+// except with LIVE_WHATSAPP_TEST outside production.
 //
 // Meta's rules this package leaves to the caller (founder docs, audit
 // docs/auditoria-crm-en-vivo-y-personal-whatsapp.md in the andrho repo):
@@ -10,8 +12,8 @@
 //   - a template needs the person's opt-in naming the business;
 //   - with Meta's test number, messages reach only the 5 verified numbers.
 //
-// Everything is behind WHATSAPP_ENABLED: without it (or without the token
-// and phone number id) Enabled() is false and nothing here is called.
+// AndRho's number is behind WHATSAPP_ENABLED; the stores' numbers behind
+// WHATSAPP_EMBEDDED_SIGNUP_ENABLED (internal/handlers/whatsapp_business.go).
 package whatsapp
 
 import (
@@ -32,7 +34,7 @@ import (
 // Window is WhatsApp's customer service window.
 const Window = 24 * time.Hour
 
-// Client is AndRho's WhatsApp number.
+// Client is one WhatsApp number: AndRho's or a store's.
 type Client struct {
 	On            bool
 	Token         string // a System User's permanent token
@@ -96,7 +98,9 @@ func (c *Client) do(ctx context.Context, method, rawURL string, body any, out an
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -117,6 +121,8 @@ func (c *Client) do(ctx context.Context, method, rawURL string, body any, out an
 				return fmt.Errorf("%w: %s", ErrOutsideWindow, env.Error.Message)
 			case 131030:
 				return fmt.Errorf("%w: %s", ErrNotAllowed, env.Error.Message)
+			case 131042:
+				return fmt.Errorf("%w: %s", ErrPayment, env.Error.Message)
 			}
 			return env.Error
 		}
@@ -178,16 +184,31 @@ func (c *Client) SendButtons(ctx context.Context, to, text string, buttons []But
 // SendTemplate sends an approved template (the only thing allowed outside
 // the window); params fill the body's {{1}}, {{2}}…
 func (c *Client) SendTemplate(ctx context.Context, to, name, lang string, params []string) (string, error) {
+	return c.SendTemplateButtons(ctx, to, name, lang, params, nil)
+}
+
+// SendTemplateButtons is SendTemplate for a template with quick reply
+// buttons: payloads[i] is what comes back (Message.ButtonID) when the
+// person taps button i.
+func (c *Client) SendTemplateButtons(ctx context.Context, to, name, lang string, params, payloads []string) (string, error) {
 	if lang == "" {
 		lang = "es"
 	}
 	tpl := map[string]any{"name": name, "language": map[string]string{"code": lang}}
+	comps := []map[string]any{}
 	if len(params) > 0 {
 		ps := make([]map[string]string, 0, len(params))
 		for _, p := range params {
 			ps = append(ps, map[string]string{"type": "text", "text": p})
 		}
-		tpl["components"] = []map[string]any{{"type": "body", "parameters": ps}}
+		comps = append(comps, map[string]any{"type": "body", "parameters": ps})
+	}
+	for i, p := range payloads {
+		comps = append(comps, map[string]any{"type": "button", "sub_type": "quick_reply", "index": fmt.Sprint(i),
+			"parameters": []map[string]string{{"type": "payload", "payload": p}}})
+	}
+	if len(comps) > 0 {
+		tpl["components"] = comps
 	}
 	return c.send(ctx, to, map[string]any{"type": "template", "template": tpl})
 }
@@ -303,9 +324,25 @@ type Webhook struct {
 	} `json:"entry"`
 }
 
-// Value is one change: messages that arrived (and delivery statuses,
-// which AndRho ignores).
+// Value is one change: messages that arrived, delivery statuses (only a
+// failed one matters: no payment method), and the account's own events
+// (account_update, message_template_status_update,
+// phone_number_quality_update, phone_number_name_update).
 type Value struct {
+	Statuses []struct {
+		Status string `json:"status"`
+		Errors []struct {
+			Code int `json:"code"`
+		} `json:"errors"`
+	} `json:"statuses"`
+	Event                   string          `json:"event"`
+	Decision                string          `json:"decision"`
+	MessageTemplateID       json.RawMessage `json:"message_template_id"`
+	MessageTemplateName     string          `json:"message_template_name"`
+	MessageTemplateLanguage string          `json:"message_template_language"`
+	Reason                  string          `json:"reason"`
+	DisplayPhoneNumber      string          `json:"display_phone_number"`
+
 	MessagingProduct string `json:"messaging_product"`
 	Metadata         struct {
 		DisplayPhoneNumber string `json:"display_phone_number"`
@@ -363,42 +400,76 @@ type Message struct {
 	Kind     string // Meta's type
 }
 
+// Change is one change of a webhook with its WABA (the entry's id).
+type Change struct {
+	WABAID, Field string
+	Value         Value
+}
+
+// Changes lists the webhook's changes.
+func (w Webhook) Changes() []Change {
+	out := []Change{}
+	for _, e := range w.Entry {
+		for _, ch := range e.Changes {
+			out = append(out, Change{WABAID: e.ID, Field: ch.Field, Value: ch.Value})
+		}
+	}
+	return out
+}
+
+// PaymentFailed reports whether a status in v failed for lack of a
+// payment method (131042).
+func (v Value) PaymentFailed() bool {
+	for _, st := range v.Statuses {
+		for _, e := range st.Errors {
+			if e.Code == 131042 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Messages flattens a webhook into the messages for phoneNumberID ("" =
 // any number of the account).
 func (w Webhook) Messages(phoneNumberID string) []Message {
 	out := []Message{}
-	for _, e := range w.Entry {
-		for _, ch := range e.Changes {
-			v := ch.Value
-			if ch.Field != "messages" || (phoneNumberID != "" && v.Metadata.PhoneNumberID != phoneNumberID) {
-				continue
-			}
-			names := map[string]string{}
-			for _, c := range v.Contacts {
-				names[Digits(c.WaID)] = c.Profile.Name
-			}
-			for _, m := range v.Messages {
-				msg := Message{ID: m.ID, From: Digits(m.From), Kind: m.Type, At: time.Now()}
-				msg.Name = names[msg.From]
-				var ts int64
-				if _, err := fmt.Sscan(m.Timestamp, &ts); err == nil && ts > 0 {
-					msg.At = time.Unix(ts, 0)
-				}
-				switch {
-				case m.Text != nil:
-					msg.Text = m.Text.Body
-				case m.Image != nil:
-					msg.ImageID, msg.Text = m.Image.ID, m.Image.Caption
-				case m.Interactive != nil && m.Interactive.ButtonReply != nil:
-					msg.ButtonID, msg.Text = m.Interactive.ButtonReply.ID, m.Interactive.ButtonReply.Title
-				case m.Interactive != nil && m.Interactive.ListReply != nil:
-					msg.ButtonID, msg.Text = m.Interactive.ListReply.ID, m.Interactive.ListReply.Title
-				case m.Button != nil:
-					msg.ButtonID, msg.Text = m.Button.Payload, m.Button.Text
-				}
-				out = append(out, msg)
-			}
+	for _, ch := range w.Changes() {
+		if ch.Field != "messages" || (phoneNumberID != "" && ch.Value.Metadata.PhoneNumberID != phoneNumberID) {
+			continue
 		}
+		out = append(out, ch.Value.Incoming()...)
+	}
+	return out
+}
+
+// Incoming flattens one change's messages.
+func (v Value) Incoming() []Message {
+	out := []Message{}
+	names := map[string]string{}
+	for _, c := range v.Contacts {
+		names[Digits(c.WaID)] = c.Profile.Name
+	}
+	for _, m := range v.Messages {
+		msg := Message{ID: m.ID, From: Digits(m.From), Kind: m.Type, At: time.Now()}
+		msg.Name = names[msg.From]
+		var ts int64
+		if _, err := fmt.Sscan(m.Timestamp, &ts); err == nil && ts > 0 {
+			msg.At = time.Unix(ts, 0)
+		}
+		switch {
+		case m.Text != nil:
+			msg.Text = m.Text.Body
+		case m.Image != nil:
+			msg.ImageID, msg.Text = m.Image.ID, m.Image.Caption
+		case m.Interactive != nil && m.Interactive.ButtonReply != nil:
+			msg.ButtonID, msg.Text = m.Interactive.ButtonReply.ID, m.Interactive.ButtonReply.Title
+		case m.Interactive != nil && m.Interactive.ListReply != nil:
+			msg.ButtonID, msg.Text = m.Interactive.ListReply.ID, m.Interactive.ListReply.Title
+		case m.Button != nil:
+			msg.ButtonID, msg.Text = m.Button.Payload, m.Button.Text
+		}
+		out = append(out, msg)
 	}
 	return out
 }

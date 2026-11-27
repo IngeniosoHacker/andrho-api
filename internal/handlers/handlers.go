@@ -14,22 +14,22 @@ import (
 	"github.com/IngeniosoHacker/andrho-api/internal/config"
 	"github.com/IngeniosoHacker/andrho-api/internal/db"
 	"github.com/IngeniosoHacker/andrho-api/internal/meta"
-	"github.com/IngeniosoHacker/andrho-api/internal/whatsapp"
 	"github.com/IngeniosoHacker/andrho-api/internal/notify"
 	"github.com/IngeniosoHacker/andrho-api/internal/provision"
 	"github.com/IngeniosoHacker/andrho-api/internal/rstats"
 	"github.com/IngeniosoHacker/andrho-api/internal/secret"
 	"github.com/IngeniosoHacker/andrho-api/internal/sites"
 	"github.com/IngeniosoHacker/andrho-api/internal/vps"
+	"github.com/IngeniosoHacker/andrho-api/internal/whatsapp"
 )
 
 // Handler bundles the dependencies every /auth/* handler needs.
 type Handler struct {
-	Accounts *pgxpool.Pool
-	Tracker  *pgxpool.Pool
-	Redis    *redis.Client
-	Cfg      *config.Config
-	AI       *ai.Client // disabled without ANTHROPIC_API_KEY
+	Accounts  *pgxpool.Pool
+	Tracker   *pgxpool.Pool
+	Redis     *redis.Client
+	Cfg       *config.Config
+	AI        *ai.Client // disabled without ANTHROPIC_API_KEY
 	Provision *provision.Provisioner
 	Secrets   *secret.Box
 	Stats     *rstats.Client // R analyses for insights, run on the VPS
@@ -44,14 +44,18 @@ type Handler struct {
 	// WA is AndRho's own WhatsApp number (internal/whatsapp); Enabled() is
 	// false until WHATSAPP_ENABLED=true with its token and phone number id.
 	WA *whatsapp.Client
+	// WAApp is the Meta app for the stores' own numbers (Embedded Signup:
+	// the code exchange); see whatsapp_business.go.
+	WAApp *whatsapp.App
 }
 
 // New builds a Handler. AI calls record their tokens in token_usage. A bad
 // VPS configuration (key or host key that don't parse) is an error.
 func New(accounts, tracker *pgxpool.Pool, rdb *redis.Client, cfg *config.Config) (*Handler, error) {
 	h := &Handler{Accounts: accounts, Tracker: tracker, Redis: rdb, Cfg: cfg,
-		Meta: meta.New(cfg.MetaAppID, cfg.MetaAppSecret, cfg.MetaGraphVersion, cfg.MetaLoginConfigID),
-		WA:   whatsapp.New(cfg.WhatsAppEnabled, cfg.WhatsAppToken, cfg.WhatsAppPhoneNumberID, cfg.WhatsAppWABAID, cfg.MetaGraphVersion)}
+		Meta:  meta.New(cfg.MetaAppID, cfg.MetaAppSecret, cfg.MetaGraphVersion, cfg.MetaLoginConfigID),
+		WA:    whatsapp.New(cfg.WhatsAppEnabled, cfg.WhatsAppToken, cfg.WhatsAppPhoneNumberID, cfg.WhatsAppWABAID, cfg.MetaGraphVersion),
+		WAApp: whatsapp.NewApp(cfg.MetaAppID, cfg.MetaAppSecret, cfg.MetaGraphVersion)}
 	box, err := secret.New(cfg.SecretsKey)
 	if err != nil {
 		return nil, err
@@ -66,7 +70,17 @@ func New(accounts, tracker *pgxpool.Pool, rdb *redis.Client, cfg *config.Config)
 	h.Stats = &rstats.Client{VPS: runner} // R for the Web insights, on the VPS
 	h.Notify = notify.FromEnv(accounts, cfg.DashboardURL)
 	h.Provision = &provision.Provisioner{DB: accounts, VPS: runner, Secrets: box, DBMode: cfg.OdooDBMode, DashboardURL: cfg.DashboardURL,
-		Sites: sites.FromEnv(), Notify: h.Notify}
+		Sites: sites.FromEnv(), Notify: h.Notify, WhatsAppSignup: cfg.WhatsAppEmbeddedSignup}
+	if cfg.WhatsAppEmbeddedSignup && accounts != nil {
+		// whatsapp jobs that waited for Meta now wait for the store.
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if n, err := db.MoveWhatsAppJobsToClient(ctx, accounts, provision.StatusWaitingClient, provision.WhatsAppConnectDetail); err != nil {
+			log.Printf("whatsapp: move jobs: %v", err)
+		} else if n > 0 {
+			log.Printf("whatsapp: %d jobs now wait for the store to connect", n)
+		}
+		cancel()
+	}
 	h.AI = ai.New(cfg.AnthropicAPIKey, cfg.AnthropicModel, func(ctx context.Context, u ai.Usage) {
 		// Detached: the request's context may be gone by the time we write.
 		err := db.RecordTokenUsage(context.WithoutCancel(ctx), accounts, db.TokenUsage{
