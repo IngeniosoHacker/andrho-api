@@ -114,6 +114,18 @@ func New(h *handlers.Handler) *gin.Engine {
 		accountGroup.DELETE("/me/whatsapp", h.UnlinkMyWhatsApp)
 	}
 
+	// The store's own WhatsApp (Embedded Signup): buyers get its number and
+	// name, never AndRho's. 404 unless WHATSAPP_EMBEDDED_SIGNUP_ENABLED.
+	waGroup := r.Group("/whatsapp/business")
+	waGroup.Use(requireAuth)
+	{
+		waGroup.GET("", h.WhatsAppBusiness)
+		waGroup.GET("/signup-config", middleware.RequireRole("admin"), h.WhatsAppSignupConfig)
+		waGroup.POST("/connect", middleware.RequireRole("admin"), h.WhatsAppConnect)
+		waGroup.POST("/refresh", middleware.RequireRole("admin"), h.WhatsAppRefresh)
+		waGroup.DELETE("", middleware.RequireRole("admin"), h.WhatsAppDisconnect)
+	}
+
 	// Suggestions -- the per-view "Sugerencias" button and the global
 	// "Sugerencias" tab in the dashboard. Viewers can read; acting on a
 	// suggestion (generating a new one, changing its status) requires editor+.

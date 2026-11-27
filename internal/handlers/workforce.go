@@ -559,7 +559,7 @@ func (h *Handler) waWorkforce(ctx context.Context, m whatsapp.Message) bool {
 	w := wfConv{h: h, cl: cl, u: u, sites: sites, phone: m.From}
 	n := live.Normalize(m.Text)
 	if m.ButtonID == wfCancel || n == "cancelar" || n == "cancela" {
-		_ = db.DeleteWASession(ctx, h.Accounts, m.From)
+		_ = db.DeleteWASession(ctx, h.Accounts, waControl, m.From)
 		h.waSay(ctx, m.From, wfCancelled)
 		return true
 	}
@@ -568,7 +568,7 @@ func (h *Handler) waWorkforce(ctx context.Context, m whatsapp.Message) bool {
 		w.startEmployee(ctx, m.ImageID, m.Text)
 		return true
 	}
-	if s, err := db.GetWASession(ctx, h.Accounts, m.From); err == nil && s.Kind == waWorkforceKind {
+	if s, err := db.GetWASession(ctx, h.Accounts, waControl, m.From); err == nil && s.Kind == waWorkforceKind {
 		var p wfPending
 		if json.Unmarshal(s.Data, &p) == nil {
 			w.continueWith(ctx, p, m)
@@ -752,7 +752,7 @@ func (w wfConv) next(ctx context.Context, p wfPending) {
 			}
 		}
 		if len(p.MemberIDs) == 0 {
-			_ = db.DeleteWASession(ctx, h.Accounts, w.phone)
+			_ = db.DeleteWASession(ctx, h.Accounts, waControl, w.phone)
 			msg := "No encontré a nadie de esa cuadrilla en " + site.Name + "."
 			if len(p.Unknown) > 0 {
 				msg += " Revisa los nombres (" + strings.Join(p.Unknown, ", ") + ") o dalos de alta primero con su foto."
@@ -791,7 +791,7 @@ func (w wfConv) next(ctx context.Context, p wfPending) {
 			}
 			switch len(mine) {
 			case 0:
-				_ = db.DeleteWASession(ctx, h.Accounts, w.phone)
+				_ = db.DeleteWASession(ctx, h.Accounts, waControl, w.phone)
 				h.waSay(ctx, w.phone, "No encontré a "+strings.TrimSpace(p.Name+codeSuffix(p.Code))+" en tus obras.")
 				return
 			case 1:
@@ -890,14 +890,14 @@ func (w wfConv) continueWith(ctx context.Context, p wfPending, m whatsapp.Messag
 				return
 			}
 		}
-		_ = db.DeleteWASession(ctx, h.Accounts, w.phone)
+		_ = db.DeleteWASession(ctx, h.Accounts, waControl, w.phone)
 		if !yes {
 			h.waSay(ctx, w.phone, wfCancelled)
 			return
 		}
 		w.execute(ctx, p)
 	default:
-		_ = db.DeleteWASession(ctx, h.Accounts, w.phone)
+		_ = db.DeleteWASession(ctx, h.Accounts, waControl, w.phone)
 		h.waSay(ctx, w.phone, wfHelp)
 	}
 }

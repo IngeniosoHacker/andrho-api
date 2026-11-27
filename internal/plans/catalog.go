@@ -36,7 +36,14 @@ type Capabilities struct {
 	// total por comandos, WhatsAppCommands al mes).
 	WhatsApp         string `json:"whatsapp"`
 	WhatsAppCommands int    `json:"whatsapp_commands"`
-	OwnNumber        bool   `json:"own_number"` // número de WhatsApp propio
+	// OwnNumber: the store's own WhatsApp with its buyers (Embedded
+	// Signup, 2026-11-27): live sales, confirmations and the CRM leave from
+	// its number and name, never AndRho's. Every plan that sells live or by
+	// WhatsApp (Plataforma and up); Meta bills its messages to the store.
+	OwnNumber bool `json:"own_number"`
+	// ControlOwnNumber: AndRho's control channel on the store's own number
+	// too (Galaxy: monitoring with Coexistence), not only on AndRho's.
+	ControlOwnNumber bool `json:"control_own_number"`
 	// Workforce: personal en obra (andrho_workforce). Supervisors register
 	// workers and crews by WhatsApp, so it comes with the WhatsApp control
 	// channel: En órbita and Galaxy.
@@ -89,15 +96,15 @@ var catalog = []Plan{
 	{ID: "base", Name: "Base", Label: "Simple", Price: 120, Tagline: "Tu negocio en un panel, sin complicarte.",
 		Caps: Capabilities{Branches: 1, Users: 1, Support: "autoservicio", Suggestions: 3, ModuleLimit: 1}},
 	{ID: "plataforma", Name: "Plataforma", Label: "Básico", Price: 349, Tagline: "Tus ventas y tus redes, en el mismo lugar.",
-		Caps: Capabilities{FEL: true, LiveSale: true, Branches: 1, Users: 2, Social: true, Support: "chat", Suggestions: 5, ModuleLimit: 2}},
+		Caps: Capabilities{FEL: true, LiveSale: true, OwnNumber: true, Branches: 1, Users: 2, Social: true, Support: "chat", Suggestions: 5, ModuleLimit: 2}},
 	{ID: "despegue", Name: "Despegue", Label: "En crecimiento", Price: 750, Tagline: "Lo esencial para dejar de decidir a ciegas.",
-		Caps: Capabilities{FEL: true, LiveSale: true, Branches: 3, Users: 6, Social: true, WhatsApp: "avisos", CreatorTasks: 1, Support: "chat",
+		Caps: Capabilities{FEL: true, LiveSale: true, OwnNumber: true, Branches: 3, Users: 6, Social: true, WhatsApp: "avisos", CreatorTasks: 1, Support: "chat",
 			Suggestions: 10, ModuleLimit: 3}},
 	{ID: "en_orbita", Name: "En órbita", Label: "Pro", Price: 1200, Tagline: "Para crecer con cada área conectada.",
-		Caps: Capabilities{FEL: true, LiveSale: true, Branches: 6, Users: 15, Social: true, WhatsApp: "control", WhatsAppCommands: 400, Workforce: true, Website: true, Store: true,
+		Caps: Capabilities{FEL: true, LiveSale: true, Branches: 6, Users: 15, Social: true, WhatsApp: "control", WhatsAppCommands: 400, OwnNumber: true, Workforce: true, Website: true, Store: true,
 			CreatorTasks: 2, Support: "chat", LiveSupportHours: 1, Suggestions: 30, ModuleLimit: 6}},
 	{ID: "galaxy", Name: "Galaxy", Label: "Ilimitado", Price: 2990, Tagline: "Tu negocio completo. Nada se queda en tierra.",
-		Caps: Capabilities{FEL: true, LiveSale: true, Branches: Unlimited, Users: Unlimited, Social: true, WhatsApp: "control", WhatsAppCommands: 1500, OwnNumber: true, Workforce: true,
+		Caps: Capabilities{FEL: true, LiveSale: true, Branches: Unlimited, Users: Unlimited, Social: true, WhatsApp: "control", WhatsAppCommands: 1500, OwnNumber: true, ControlOwnNumber: true, Workforce: true,
 			Website: true, Store: true, FullSite: true, CreatorTasks: 4, Support: "chat", LiveSupportHours: 2,
 			Suggestions: Unlimited, ModuleLimit: Unlimited}},
 }
@@ -204,13 +211,16 @@ func Includes(p Plan) []string {
 	if c.LiveSale {
 		out = append(out, "Venta en vivo: aparta, confirma por Messenger y arma tus envíos")
 	}
+	if c.OwnNumber {
+		out = append(out, "Tu propio WhatsApp: tus compradores ven tu nombre y tu número")
+	}
 	switch c.WhatsApp {
 	case "avisos":
 		out = append(out, "WhatsApp: avisos y reportes")
 	case "control":
 		line := fmt.Sprintf("WhatsApp: control total, %s comandos al mes", thousands(c.WhatsAppCommands))
-		if c.OwnNumber {
-			line += " y número propio"
+		if c.ControlOwnNumber {
+			line += " y AndRho en tu propio número"
 		}
 		out = append(out, line)
 	}

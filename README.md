@@ -85,7 +85,10 @@ already owns and migrates its own schema.
 | `WHATSAPP_TOKEN`            | — | A System User's permanent token with `whatsapp_business_messaging` (founder/meta-cuenta-oficial.md §8). Secret. |
 | `WHATSAPP_PHONE_NUMBER_ID`  | — | The phone number id of AndRho's number (today: Meta's Cloud API test number). |
 | `WHATSAPP_BUSINESS_ACCOUNT_ID` | — | The WhatsApp Business Account id (templates). |
-| `LIVE_WHATSAPP_TEST`        | `false` | Offers the live sales' "Chatear por WhatsApp" button (and the channel question). It points to AndRho's number: **test only** until AndRho is a Meta Tech Provider and each store connects its own. |
+| `LIVE_WHATSAPP_TEST`        | `false` | Lets live sales use AndRho's number with buyers when the store has no number of its own: **test only**, and ignored with `APP_ENV=production`. |
+| `APP_ENV`                   | — | `production` on Railway's production service. Turns `LIVE_WHATSAPP_TEST` off for good. |
+| `WHATSAPP_EMBEDDED_SIGNUP_ENABLED` | `false` | Each store connects its own WhatsApp (Embedded Signup) and its buyers get its number and name. Needs `META_WA_ES_CONFIG_ID`, `META_APP_ID` and `META_APP_SECRET`. |
+| `META_WA_ES_CONFIG_ID`      | — | The Facebook Login for Business configuration **of the WhatsApp Embedded Signup type** (not the Pages one, `META_LOGIN_CONFIG_ID`). |
 | `WHATSAPP_TEMPLATE_LIVE_CONFIRM` | — | An approved template (`{{1}}` item, `{{2}}` price) to ask a buyer who prefers WhatsApp after the 24 h window. Empty: only inside the window. |
 | `WHATSAPP_TEMPLATE_LANG`    | `es` | The template's language code. |
 
@@ -322,7 +325,7 @@ the background:
 | Job | What it does | Waits for |
 | --- | --- | --- |
 | `erp` | Odoo + PostgreSQL on the VPS (`VPS/odoo/provision-client.sh` over SSH, `ODOO_MODULES` = the list above, image built from `andrho_odoo`); the access is stored in `odoo_connections`, password encrypted with `SECRETS_KEY` | `VPS_*` (`esperando_vps`) |
-| `whatsapp` | The client in AndRho's WhatsApp solution (`VPS/whatsapp/register-client.sh`) | the VPS, then Meta (`esperando_meta`) |
+| `whatsapp` | With `WHATSAPP_EMBEDDED_SIGNUP_ENABLED`: waits for the store to connect its number from the dashboard (`esperando_cliente`), then shows the connection's progress; at start-up, jobs left in `esperando_meta` move there. Without it: the client in AndRho's WhatsApp solution (`VPS/whatsapp/register-client.sh`) | the store (`esperando_cliente`), or the VPS then Meta (`esperando_meta`) |
 | `website` | The client's site (its own Railway service, see **Websites**) and a website task for Creators (`creator_tasks`) with the brand brief, assigned by the matching. Only when the plan or the `sitio_web_basico` add-on includes a website; otherwise the site is recorded as `offered` and starts by itself when the plan changes (`PATCH /account/plan`) | Railway (background) |
 | `meta` | Nothing yet | Meta's Tech Provider approval |
 
@@ -440,8 +443,9 @@ rules (`internal/live`):
   lives); `POST /erp/sso {next}` opens the ERP right there.
 
 **CRM from the lives** (account features `live_crm`, on by default with
-live sales, and `live_whatsapp`, off and only offered with
-`LIVE_WHATSAPP_TEST`; `PUT /account/features/:feature`):
+live sales, and `live_whatsapp`, offered once the store connected its own
+WhatsApp and then on by default, or in the test mode off by default;
+`PUT /account/features/:feature`):
 
 - A comment that names an item makes its author a customer in the ERP (tag
   "Cliente", linked to the line and the live); comments without a match,
@@ -452,12 +456,15 @@ live sales, and `live_whatsapp`, off and only offered with
   consent's date and channel on the contact. `privacy_url` (setting) closes
   the conversation.
 - With `live_whatsapp`: a third button, "Chatear por WhatsApp" (wa.me to
-  AndRho's number with "Pedido AR-XXXX" typed, `live_link_codes`). That
-  message joins the number to the same contact and order (only because the
-  buyer wrote it), and the buyer can confirm and give shipping details
-  there. Right before closing, AndRho asks "¿WhatsApp o Messenger?" and saves
-  it on the contact; next time a buyer who prefers WhatsApp is also asked
-  there (inside 24 h, or with `WHATSAPP_TEMPLATE_LIVE_CONFIRM`).
+  **the store's own number** with "Pedido AR-XXXX" typed, `live_link_codes`;
+  the code only works on that number). That message joins the number to the
+  same contact and order (only because the buyer wrote it), and the buyer
+  can confirm and give shipping details there. Right before closing, AndRho
+  asks "¿WhatsApp o Messenger?" and saves it on the contact; next time a
+  buyer who prefers WhatsApp is also asked there (inside 24 h, or with the
+  store's approved template `andrho_confirmar_apartado`, with "Sí / No"
+  buttons). Without the store's number nothing goes by WhatsApp: Messenger
+  only.
 - `GET /live/sessions/:id/people` (a live's customers and prospects),
   `GET /live/contacts?kind=` (all, with preferred channel and conversion).
 - Opening En vivo upgrades the ERP's `andrho_core` and `andrho_live_sale`
@@ -466,11 +473,54 @@ live sales, and `live_whatsapp`, off and only offered with
 End-to-end test (real Postgres and Odoo, fake Graph API):
 `LIVE_IT_PG=… LIVE_IT_ODOO=… LIVE_IT_ODOO_DB=… go test -tags integration -run TestLiveEndToEnd ./internal/handlers/`.
 
+### The store's own WhatsApp: `/whatsapp/business` (Embedded Signup)
+
+Everything that goes to a buyer (live sales, confirmations, CRM, notices)
+leaves from **the store's number, with its name**; AndRho's number is only
+the control channel. Behind `WHATSAPP_EMBEDDED_SIGNUP_ENABLED`; plans with
+`own_number` (Plataforma and up). Audit and Meta's rules:
+`docs/auditoria-whatsapp-por-cliente.md`.
+
+- `GET /whatsapp/business`: number, display name and its approval, quality,
+  Coexistence, payment (`needs_payment` + `payment_link` to WhatsApp
+  Manager), templates and the `whatsapp` job. `GET /whatsapp/business/signup-config`
+  (admin+): `app_id` and `config_id` for the dashboard's `FB.login`
+  (Embedded Signup v5).
+- `POST /whatsapp/business/connect {code, event, phone_number_id, …}`
+  (admin+): exchanges the code (it lives 5 minutes) for the store's
+  business token, reads the WABA from the token (`debug_token`, never from
+  the browser), subscribes the app (`subscribed_apps`), registers the number
+  with a random PIN or, with Coexistence, asks for Meta's two syncs and keeps
+  nothing of them, reads name and quality, and creates the templates
+  (`andrho_confirmar_apartado`, `andrho_aviso_pedido`, utility). Progress
+  on the `whatsapp` job.
+- `POST /whatsapp/business/refresh`, `DELETE /whatsapp/business` (admin+:
+  unsubscribes and erases token and PIN; the number isn't deregistered).
+- `whatsapp_accounts` (token and PIN sealed with `SECRETS_KEY`, never
+  logged; status `pendiente | activo | sin_pago | desconectado`) and
+  `whatsapp_templates` (used only when `APPROVED`). `WhatsAppCheckLoop`
+  rereads every number every 6 h.
+- Webhooks go by `metadata.phone_number_id`: AndRho's number → control
+  routes; a store's number → its buyers (`waLive`; anything else is the
+  store's own chat and AndRho stays quiet); unknown → logged and ignored.
+  Also `account_update` (store removed AndRho → `desconectado`),
+  `message_template_status_update`, quality and name updates, and failed
+  sends with 131042 (`sin_pago`).
+- `wa_inbound`, `wa_sessions` and `live_link_codes` are per pair of numbers
+  (`business_phone_id`, `''` = AndRho's).
+
+Test (real Postgres, fake Graph API): `WA_IT_PG=… go test -run WhatsApp ./internal/handlers/`.
+**Pending on Meta**: real stores need AndRho verified as Tech Provider
+(business verification, App Review, advanced access); in development mode it
+works with accounts that have a role in the app (up to 10 sign-ups a week).
+
 ### AndRho's WhatsApp: `/account/me/whatsapp` and `POST /meta/webhook`
 
-One WhatsApp number for every account (`internal/whatsapp`), behind
-`WHATSAPP_ENABLED`. Its webhook is the same `/meta/webhook` (same app and
-signature); messages for `whatsapp_business_account` go through
+AndRho's own number (`internal/whatsapp`), behind `WHATSAPP_ENABLED`: only
+the **control channel** (owners and their team talking to AndRho) and
+AndRho's notices to its own users; buyers never get it (except
+`LIVE_WHATSAPP_TEST` outside production). Its webhook is the same
+`/meta/webhook` (same app and signature); its messages go through
 `waRoutes` in order (`internal/handlers/whatsapp.go`).
 
 - `POST /account/me/whatsapp/link` gives the user a code (15 min, stored as

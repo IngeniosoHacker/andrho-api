@@ -28,7 +28,7 @@ type Config struct {
 	// The remote VPS where provisioning scripts run (internal/vps). Empty
 	// VPSHost = provisioning waits for it.
 	VPSHost, VPSPort, VPSUser, VPSSSHKey, VPSHostKey, VPSScriptsDir string
-	OdooDBMode string // shared | dedicated | mixed
+	OdooDBMode                                                      string // shared | dedicated | mixed
 	// DashboardURL is the dashboard's address; each ERP sends people back
 	// there (DASHBOARD_URL, e.g. https://dev.andrho.com/dashboard/).
 	DashboardURL string
@@ -63,12 +63,21 @@ type Config struct {
 	// number. Off unless WHATSAPP_ENABLED=true and the token and phone
 	// number id are set. Its webhook is the same /meta/webhook (same app,
 	// same META_APP_SECRET and META_VERIFY_TOKEN).
-	WhatsAppEnabled                                       bool
+	WhatsAppEnabled                                      bool
 	WhatsAppToken, WhatsAppPhoneNumberID, WhatsAppWABAID string
-	// LiveWhatsAppTest lets accounts turn on the "Chatear por WhatsApp"
-	// button of live sales. It points to AndRho's number: test only, until
-	// AndRho is a Tech Provider and each store connects its own.
+	// LiveWhatsAppTest lets live sales use AndRho's number with buyers
+	// when the store has no number of its own: a test only, and ignored
+	// when APP_ENV=production (buyers only ever get the store's number).
 	LiveWhatsAppTest bool
+	// AppEnv is APP_ENV: "production" on Railway's production service.
+	AppEnv string
+	// Each store's own WhatsApp, connected with Embedded Signup
+	// (internal/whatsapp/business.go). Off unless
+	// WHATSAPP_EMBEDDED_SIGNUP_ENABLED=true with META_WA_ES_CONFIG_ID (a
+	// Facebook Login for Business configuration of the WhatsApp Embedded
+	// Signup type) and the Meta app (META_APP_ID, META_APP_SECRET).
+	WhatsAppEmbeddedSignup bool
+	MetaWAESConfigID       string
 	// WhatsAppTemplateLiveConfirm: an approved template ({{1}} item,
 	// {{2}} price) to ask a buyer who prefers WhatsApp when it's been more
 	// than 24 h since they wrote. Empty: only inside the window.
@@ -83,43 +92,46 @@ func Load() *Config {
 	}
 
 	cfg := &Config{
-		Port:                getEnv("PORT", "8080"),
-		DatabaseURL:         getEnv("DATABASE_URL", ""),
-		TrackerDatabaseURL:  getEnv("TRACKER_DATABASE_URL", ""),
-		RedisURL:            getEnv("REDIS_URL", ""),
-		JWTSecret:           getEnv("JWT_SECRET", ""),
-		JWTAccessTTLMinutes: getEnvInt("JWT_ACCESS_TTL_MINUTES", 30),
-		JWTRefreshTTLDays:   getEnvInt("JWT_REFRESH_TTL_DAYS", 30),
-		AllowedOrigins:      parseOrigins(getEnv("ALLOWED_ORIGINS", "*")),
-		GitHubToken:         getEnv("GITHUB_TOKEN", ""),
-		GitHubRepos:         parseOrigins(getEnv("GITHUB_REPOS", "IngeniosoHacker/andrho,IngeniosoHacker/andrho-tracker-dashboard,IngeniosoHacker/andrho-api")),
-		AnthropicAPIKey:     getEnv("ANTHROPIC_API_KEY", ""),
-		AnthropicModel:      getEnv("ANTHROPIC_MODEL", "claude-sonnet-5-5"),
-		VPSHost:             getEnv("VPS_HOST", ""),
-		VPSPort:             getEnv("VPS_PORT", "22"),
-		VPSUser:             getEnv("VPS_USER", "andrho"),
-		VPSSSHKey:           getEnv("VPS_SSH_KEY", ""),
-		VPSHostKey:          getEnv("VPS_HOST_KEY", ""),
-		VPSScriptsDir:       getEnv("VPS_SCRIPTS_DIR", "/opt/andrho/VPS"),
-		OdooDBMode:          getEnv("ODOO_DB_MODE", "shared"),
-		DashboardURL:        getEnv("DASHBOARD_URL", ""),
-		OdooAllowPrivate:    getEnv("ODOO_ALLOW_PRIVATE", "") == "true",
-		SecretsKey:          getEnv("SECRETS_KEY", ""),
-		StaffAdmins:         parseOrigins(getEnv("ANDRHO_ADMINS", "")),
-		StaffCreators:       parseOrigins(getEnv("ANDRHO_CREATORS", "test@andrho.dev")),
-		AndRhoSiteID:        getEnv("ANDRHO_SITE_ID", "andrho"),
-		MetaAppID:           getEnv("META_APP_ID", ""),
-		MetaAppSecret:       getEnv("META_APP_SECRET", ""),
-		MetaVerifyToken:     getEnv("META_VERIFY_TOKEN", ""),
-		MetaGraphVersion:    getEnv("META_GRAPH_VERSION", "v27.0"),
-		MetaLoginConfigID:   getEnv("META_LOGIN_CONFIG_ID", ""),
-		PublicURL:           strings.TrimRight(getEnv("API_PUBLIC_URL", ""), "/"),
-		LiveConfirmMinutes:  getEnvInt("LIVE_CONFIRM_MINUTES", 15),
-		WhatsAppEnabled:       getEnv("WHATSAPP_ENABLED", "") == "true",
-		WhatsAppToken:         getEnv("WHATSAPP_TOKEN", ""),
-		WhatsAppPhoneNumberID: getEnv("WHATSAPP_PHONE_NUMBER_ID", ""),
-		WhatsAppWABAID:        getEnv("WHATSAPP_BUSINESS_ACCOUNT_ID", ""),
-		LiveWhatsAppTest:            getEnv("LIVE_WHATSAPP_TEST", "") == "true",
+		Port:                        getEnv("PORT", "8080"),
+		DatabaseURL:                 getEnv("DATABASE_URL", ""),
+		TrackerDatabaseURL:          getEnv("TRACKER_DATABASE_URL", ""),
+		RedisURL:                    getEnv("REDIS_URL", ""),
+		JWTSecret:                   getEnv("JWT_SECRET", ""),
+		JWTAccessTTLMinutes:         getEnvInt("JWT_ACCESS_TTL_MINUTES", 30),
+		JWTRefreshTTLDays:           getEnvInt("JWT_REFRESH_TTL_DAYS", 30),
+		AllowedOrigins:              parseOrigins(getEnv("ALLOWED_ORIGINS", "*")),
+		GitHubToken:                 getEnv("GITHUB_TOKEN", ""),
+		GitHubRepos:                 parseOrigins(getEnv("GITHUB_REPOS", "IngeniosoHacker/andrho,IngeniosoHacker/andrho-tracker-dashboard,IngeniosoHacker/andrho-api")),
+		AnthropicAPIKey:             getEnv("ANTHROPIC_API_KEY", ""),
+		AnthropicModel:              getEnv("ANTHROPIC_MODEL", "claude-sonnet-5-5"),
+		VPSHost:                     getEnv("VPS_HOST", ""),
+		VPSPort:                     getEnv("VPS_PORT", "22"),
+		VPSUser:                     getEnv("VPS_USER", "andrho"),
+		VPSSSHKey:                   getEnv("VPS_SSH_KEY", ""),
+		VPSHostKey:                  getEnv("VPS_HOST_KEY", ""),
+		VPSScriptsDir:               getEnv("VPS_SCRIPTS_DIR", "/opt/andrho/VPS"),
+		OdooDBMode:                  getEnv("ODOO_DB_MODE", "shared"),
+		DashboardURL:                getEnv("DASHBOARD_URL", ""),
+		OdooAllowPrivate:            getEnv("ODOO_ALLOW_PRIVATE", "") == "true",
+		SecretsKey:                  getEnv("SECRETS_KEY", ""),
+		StaffAdmins:                 parseOrigins(getEnv("ANDRHO_ADMINS", "")),
+		StaffCreators:               parseOrigins(getEnv("ANDRHO_CREATORS", "test@andrho.dev")),
+		AndRhoSiteID:                getEnv("ANDRHO_SITE_ID", "andrho"),
+		MetaAppID:                   getEnv("META_APP_ID", ""),
+		MetaAppSecret:               getEnv("META_APP_SECRET", ""),
+		MetaVerifyToken:             getEnv("META_VERIFY_TOKEN", ""),
+		MetaGraphVersion:            getEnv("META_GRAPH_VERSION", "v27.0"),
+		MetaLoginConfigID:           getEnv("META_LOGIN_CONFIG_ID", ""),
+		PublicURL:                   strings.TrimRight(getEnv("API_PUBLIC_URL", ""), "/"),
+		LiveConfirmMinutes:          getEnvInt("LIVE_CONFIRM_MINUTES", 15),
+		WhatsAppEnabled:             getEnv("WHATSAPP_ENABLED", "") == "true",
+		WhatsAppToken:               getEnv("WHATSAPP_TOKEN", ""),
+		WhatsAppPhoneNumberID:       getEnv("WHATSAPP_PHONE_NUMBER_ID", ""),
+		WhatsAppWABAID:              getEnv("WHATSAPP_BUSINESS_ACCOUNT_ID", ""),
+		AppEnv:                      getEnv("APP_ENV", ""),
+		LiveWhatsAppTest:            getEnv("LIVE_WHATSAPP_TEST", "") == "true" && getEnv("APP_ENV", "") != "production",
+		WhatsAppEmbeddedSignup:      getEnv("WHATSAPP_EMBEDDED_SIGNUP_ENABLED", "") == "true",
+		MetaWAESConfigID:            getEnv("META_WA_ES_CONFIG_ID", ""),
 		WhatsAppTemplateLiveConfirm: getEnv("WHATSAPP_TEMPLATE_LIVE_CONFIRM", ""),
 		WhatsAppTemplateLang:        getEnv("WHATSAPP_TEMPLATE_LANG", "es"),
 	}

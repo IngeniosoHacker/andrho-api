@@ -28,9 +28,10 @@ import (
 //     turns them on) reactions make prospects, with only the name and ids
 //     Meta gives. People who only watch aren't in Meta's API;
 //   - the confirmation carries a "Chatear por WhatsApp" button (wa.me with
-//     "Pedido AR-XXXX" typed). When that message reaches AndRho's WhatsApp,
-//     the number joins the same contact and order; it's kept only because
-//     the buyer wrote it;
+//     "Pedido AR-XXXX" typed) to the store's own number (whatsapp_business.go;
+//     no button without one). When that message reaches it, the number
+//     joins the same contact and order; it's kept only because the buyer
+//     wrote it;
 //   - right before closing, AndRho asks which channel they prefer and
 //     writes there next time, inside Meta's windows or with an approved
 //     template;
@@ -219,11 +220,12 @@ func (h *Handler) liveReactions(ctx context.Context, sess db.LiveSession, page p
 // and a little more.
 const linkCodeTTL = 8 * 24 * time.Hour
 
-// orderCode gives a claim its "AR-XXXX" (once).
-func (h *Handler) orderCode(ctx context.Context, claim db.LiveClaim) (db.LiveLinkCode, error) {
+// orderCode gives a claim its "AR-XXXX" (once), valid on the store number
+// biz.
+func (h *Handler) orderCode(ctx context.Context, claim db.LiveClaim, biz string) (db.LiveLinkCode, error) {
 	for range 5 {
 		l, ok, err := db.CreateLiveLinkCode(ctx, h.Accounts, db.LiveLinkCode{Code: "AR-" + newCode(4), AccountID: claim.AccountID,
-			ClaimID: claim.ID, PageID: claim.PageID, BuyerID: claim.BuyerID, ExpiresAt: time.Now().Add(linkCodeTTL)})
+			ClaimID: claim.ID, PageID: claim.PageID, BuyerID: claim.BuyerID, ExpiresAt: time.Now().Add(linkCodeTTL), Biz: biz})
 		if err != nil {
 			return l, err
 		}
@@ -234,20 +236,28 @@ func (h *Handler) orderCode(ctx context.Context, claim db.LiveClaim) (db.LiveLin
 	return db.LiveLinkCode{}, errors.New("live: no free order code")
 }
 
-// whatsappButton is the "Chatear por WhatsApp" link for a claim, or nil
-// when the account doesn't use it.
+// whatsappButton is the "Chatear por WhatsApp" link to the store's
+// number for a claim, or nil when the account doesn't use it or has no
+// number of its own.
 func (h *Handler) whatsappButton(ctx context.Context, claim db.LiveClaim) *meta.Button {
 	if !h.featureOn(ctx, claim.AccountID, featureLiveWhatsApp) {
 		return nil
 	}
-	number := h.WA.DisplayNumber(ctx)
+	line, ok := h.buyerLine(ctx, claim.AccountID)
+	if !ok {
+		return nil
+	}
+	number := line.number(ctx)
 	if number == "" {
 		return nil
 	}
-	l, err := h.orderCode(ctx, claim)
+	l, err := h.orderCode(ctx, claim, line.biz)
 	if err != nil {
 		log.Printf("live: order code for claim %d: %v", claim.ID, err)
 		return nil
+	}
+	if l.Biz != line.biz {
+		return nil // the code was made for a number the store no longer uses
 	}
 	return &meta.Button{Title: "Chatear por WhatsApp", URL: whatsapp.ChatLink(number, live.OrderText(l.Code))}
 }
@@ -302,8 +312,10 @@ func (m messengerChat) saveThread(ctx context.Context, t db.LiveThread) {
 	_ = db.SaveLiveThread(ctx, m.h.Accounts, t)
 }
 
+// waChat is a buyer's conversation on a store's number (line).
 type waChat struct {
 	h     *Handler
+	line  waLine
 	phone string
 }
 
@@ -311,17 +323,17 @@ const waLiveKind = "live"
 
 func (w waChat) channel() string                      { return "whatsapp" }
 func (w waChat) psid() string                         { return "" }
-func (w waChat) say(ctx context.Context, text string) { w.h.waSay(ctx, w.phone, text) }
+func (w waChat) say(ctx context.Context, text string) { w.line.say(ctx, w.h, w.phone, text) }
 func (w waChat) ask(ctx context.Context, text string, opts []choice) {
 	bs := make([]whatsapp.Button, 0, len(opts))
 	for _, o := range opts {
 		bs = append(bs, whatsapp.Button{ID: o.Payload, Title: o.Title})
 	}
-	w.h.waAsk(ctx, w.phone, text, bs)
+	w.line.ask(ctx, w.h, w.phone, text, bs)
 }
 func (w waChat) link(ctx context.Context, text, title, url string) { w.say(ctx, text+" "+url) }
 func (w waChat) thread(ctx context.Context) (db.LiveThread, error) {
-	s, err := db.GetWASession(ctx, w.h.Accounts, w.phone)
+	s, err := db.GetWASession(ctx, w.h.Accounts, w.line.biz, w.phone)
 	if err != nil || s.Kind != waLiveKind {
 		return db.LiveThread{}, db.ErrNotFound
 	}
@@ -331,11 +343,11 @@ func (w waChat) thread(ctx context.Context) (db.LiveThread, error) {
 }
 func (w waChat) saveThread(ctx context.Context, t db.LiveThread) {
 	if t.Step == "" {
-		_ = db.DeleteWASession(ctx, w.h.Accounts, w.phone)
+		_ = db.DeleteWASession(ctx, w.h.Accounts, w.line.biz, w.phone)
 		return
 	}
 	b, _ := json.Marshal(t)
-	_ = db.SaveWASession(ctx, w.h.Accounts, db.WASession{Phone: w.phone, AccountID: t.AccountID, Kind: waLiveKind, Data: b,
+	_ = db.SaveWASession(ctx, w.h.Accounts, db.WASession{Biz: w.line.biz, Phone: w.phone, AccountID: t.AccountID, Kind: waLiveKind, Data: b,
 		ExpiresAt: time.Now().Add(whatsapp.Window)})
 }
 
@@ -418,21 +430,28 @@ func (h *Handler) answerChannel(ctx context.Context, chat buyerChat, claim db.Li
 	}
 }
 
-// --- AndRho's WhatsApp: buyers ------------------------------------------------------
+// --- the store's WhatsApp: buyers ------------------------------------------------------
 
-// waLive takes a buyer's WhatsApp: the order code, their buttons and the
-// shipping details they type.
-func (h *Handler) waLive(ctx context.Context, m whatsapp.Message) bool {
+// lineServes reports whether line may speak for accountID's orders: the
+// store's own number only for its account; AndRho's (test) for any.
+func (l waLine) serves(accountID string) bool {
+	return !l.own() || l.acc.AccountID == accountID
+}
+
+// waLive takes a buyer's WhatsApp on a store's number (line): the order
+// code, their buttons and the shipping details they type.
+func (h *Handler) waLive(ctx context.Context, line waLine, m whatsapp.Message) bool {
 	if prefix, id, ok := payloadClaim(m.ButtonID, live.PayloadYes, live.PayloadNo, live.PayloadChannelWA, live.PayloadChannelMS); ok {
 		claim, err := db.GetLiveClaim(ctx, h.Accounts, id)
-		if err != nil {
+		if err != nil || !line.serves(claim.AccountID) {
 			return true
 		}
-		// Only the number that linked this order can answer for it.
-		if l, err := db.LiveLinkCodeForClaim(ctx, h.Accounts, id); err != nil || l.WAPhone != m.From {
+		// Only the number that linked this order, on the store's number,
+		// can answer for it.
+		if l, err := db.LiveLinkCodeForClaim(ctx, h.Accounts, id); err != nil || l.WAPhone != m.From || l.Biz != line.biz {
 			return true
 		}
-		chat := waChat{h: h, phone: m.From}
+		chat := waChat{h: h, line: line, phone: m.From}
 		switch prefix {
 		case live.PayloadChannelWA, live.PayloadChannelMS:
 			h.answerChannel(ctx, chat, claim, prefix == live.PayloadChannelWA)
@@ -442,10 +461,10 @@ func (h *Handler) waLive(ctx context.Context, m whatsapp.Message) bool {
 		return true
 	}
 	if code := live.OrderCode(m.Text); code != "" {
-		h.waOrderCode(ctx, m, code)
+		h.waOrderCode(ctx, line, m, code)
 		return true
 	}
-	chat := waChat{h: h, phone: m.From}
+	chat := waChat{h: h, line: line, phone: m.From}
 	if t, err := chat.thread(ctx); err == nil && t.Step != "" {
 		h.shippingText(ctx, chat, t, m.Text)
 		return true
@@ -453,30 +472,33 @@ func (h *Handler) waLive(ctx context.Context, m whatsapp.Message) bool {
 	return false
 }
 
-// waOrderCode joins the WhatsApp number to the order's contact.
-func (h *Handler) waOrderCode(ctx context.Context, m whatsapp.Message, code string) {
-	if waGuesses.blocked(m.From, time.Now()) {
-		h.waSay(ctx, m.From, waTooManyCodes)
+// waOrderCode joins the WhatsApp number to the order's contact. The code
+// only works on the store number it was made for.
+func (h *Handler) waOrderCode(ctx context.Context, line waLine, m whatsapp.Message, code string) {
+	say := func(text string) { line.say(ctx, h, m.From, text) }
+	guessKey := line.biz + "|" + m.From
+	if waGuesses.blocked(guessKey, time.Now()) {
+		say(waTooManyCodes)
 		return
 	}
 	l, err := db.GetLiveLinkCode(ctx, h.Accounts, code)
-	if err != nil {
-		waGuesses.miss(m.From, time.Now())
-		h.waSay(ctx, m.From, live.WhatsAppLinkExpired)
+	if err != nil || l.Biz != line.biz || !line.serves(l.AccountID) {
+		waGuesses.miss(guessKey, time.Now())
+		say(live.WhatsAppLinkExpired)
 		return
 	}
 	claim, err := db.GetLiveClaim(ctx, h.Accounts, l.ClaimID)
 	if err != nil {
-		h.waSay(ctx, m.From, live.WhatsAppLinkExpired)
+		say(live.WhatsAppLinkExpired)
 		return
 	}
 	if l.WAPhone != "" && l.WAPhone != m.From {
 		// Someone else already linked this order: a forwarded code.
-		waGuesses.miss(m.From, time.Now())
-		h.waSay(ctx, m.From, live.WhatsAppLinkExpired)
+		waGuesses.miss(guessKey, time.Now())
+		say(live.WhatsAppLinkExpired)
 		return
 	}
-	if err := db.UseLiveLinkCode(ctx, h.Accounts, code, m.From); err != nil {
+	if err := db.UseLiveLinkCode(ctx, h.Accounts, code, line.biz, m.From); err != nil {
 		return
 	}
 	cl, err := h.odooFor(ctx, claim.AccountID)
@@ -485,15 +507,15 @@ func (h *Handler) waOrderCode(ctx context.Context, m whatsapp.Message, code stri
 			log.Printf("live: whatsapp of buyer %d: %v", claim.BuyerID, err)
 		}
 	}
-	chat := waChat{h: h, phone: m.From}
+	chat := waChat{h: h, line: line, phone: m.From}
 	switch claim.State {
 	case "asked":
-		line, err := erpLine(ctx, cl, claim.OdooLineID)
+		item, err := erpLine(ctx, cl, claim.OdooLineID)
 		if err != nil {
-			h.waSay(ctx, m.From, live.WhatsAppLinked)
+			say(live.WhatsAppLinked)
 			return
 		}
-		chat.ask(ctx, live.WhatsAppLinked+" "+live.ConfirmWithConsent(line.LiveName, line.Price), claimChoices(claim.ID))
+		chat.ask(ctx, live.WhatsAppLinked+" "+live.ConfirmWithConsent(item.LiveName, item.Price), claimChoices(claim.ID))
 	case "confirmed":
 		chat.say(ctx, live.WhatsAppLinked)
 		if cl != nil && h.wantsChannelQuestion(ctx, cl, claim) {
@@ -501,39 +523,57 @@ func (h *Handler) waOrderCode(ctx context.Context, m whatsapp.Message, code stri
 			chat.ask(ctx, live.AskChannel, channelChoices(claim.ID))
 		}
 	default:
-		h.waSay(ctx, m.From, live.WhatsAppLinkExpired)
+		say(live.WhatsAppLinkExpired)
 	}
 }
 
 // --- the preferred channel, next time ---------------------------------------------------
 
-// notifyPreferred also asks a returning buyer who prefers WhatsApp there:
-// inside the 24 h window as a message with buttons; outside, only with the
-// approved template (WHATSAPP_TEMPLATE_LIVE_CONFIRM). Messenger's private
-// reply always goes too: it's what answers their comment.
-func (h *Handler) notifyPreferred(ctx context.Context, cl *odoo.Client, claim db.LiveClaim, line liveLine) {
+// notifyPreferred also asks a returning buyer who prefers WhatsApp there,
+// from the store's number: inside the 24 h window as a message with
+// buttons; outside, only with the store's approved template
+// (andrho_confirmar_apartado; in the test mode on AndRho's number,
+// WHATSAPP_TEMPLATE_LIVE_CONFIRM). Without the store's number nothing goes
+// by WhatsApp. Messenger's private reply always goes too: it's what
+// answers their comment.
+func (h *Handler) notifyPreferred(ctx context.Context, cl *odoo.Client, claim db.LiveClaim, item liveLine) {
 	if claim.BuyerID == 0 || !h.featureOn(ctx, claim.AccountID, featureLiveWhatsApp) {
+		return
+	}
+	line, ok := h.buyerLine(ctx, claim.AccountID)
+	if !ok {
 		return
 	}
 	r, err := erpBuyerReach(ctx, cl, claim.BuyerID)
 	if err != nil || r.Preferred != "whatsapp" || r.WhatsApp == "" {
 		return
 	}
-	l, err := h.orderCode(ctx, claim)
-	if err != nil {
+	l, err := h.orderCode(ctx, claim, line.biz)
+	if err != nil || l.Biz != line.biz {
+		return // the code belongs to a number the store no longer uses
+	}
+	_ = db.UseLiveLinkCode(ctx, h.Accounts, l.Code, line.biz, r.WhatsApp)
+	last, _ := db.WALastInbound(ctx, h.Accounts, line.biz, r.WhatsApp)
+	if whatsapp.InWindow(last, time.Now()) {
+		waChat{h: h, line: line, phone: r.WhatsApp}.ask(ctx, live.ConfirmWithConsent(item.LiveName, item.Price), claimChoices(claim.ID))
 		return
 	}
-	_ = db.UseLiveLinkCode(ctx, h.Accounts, l.Code, r.WhatsApp)
-	last, _ := db.WALastInbound(ctx, h.Accounts, r.WhatsApp)
-	if whatsapp.InWindow(last, time.Now()) {
-		waChat{h: h, phone: r.WhatsApp}.ask(ctx, live.ConfirmWithConsent(line.LiveName, line.Price), claimChoices(claim.ID))
+	params := []string{item.LiveName, live.Money(item.Price)}
+	if line.own() {
+		if !db.WhatsAppTemplateApproved(ctx, h.Accounts, line.acc.ID, tplLiveConfirm, tplLang) {
+			return // not approved yet: Messenger's private reply is enough
+		}
+		id := strconv.FormatInt(claim.ID, 10)
+		if _, err := line.wa.SendTemplateButtons(ctx, r.WhatsApp, tplLiveConfirm, tplLang, params,
+			[]string{live.PayloadYes + id, live.PayloadNo + id}); err != nil {
+			h.sendFailed(line, r.WhatsApp, err)
+		}
 		return
 	}
 	if h.Cfg.WhatsAppTemplateLiveConfirm == "" {
-		return // no approved template yet: Messenger's private reply is enough
+		return
 	}
-	if _, err := h.WA.SendTemplate(ctx, r.WhatsApp, h.Cfg.WhatsAppTemplateLiveConfirm, h.Cfg.WhatsAppTemplateLang,
-		[]string{line.LiveName, live.Money(line.Price)}); err != nil {
+	if _, err := line.wa.SendTemplate(ctx, r.WhatsApp, h.Cfg.WhatsAppTemplateLiveConfirm, h.Cfg.WhatsAppTemplateLang, params); err != nil {
 		log.Printf("live: template to buyer %d: %v", claim.BuyerID, err)
 	}
 }

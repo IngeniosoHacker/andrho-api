@@ -2,6 +2,7 @@ package plans
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -275,5 +276,34 @@ func TestIncludes(t *testing.T) {
 	}
 	if FormatQ(2990) != "Q2,990" || FormatQ(120) != "Q120" {
 		t.Fatal("FormatQ")
+	}
+}
+
+// Every plan that sells live or by WhatsApp has the store's own number
+// with its buyers (2026-11-27); controlling AndRho from that number is
+// Galaxy's (or its add-on).
+func TestOwnNumber(t *testing.T) {
+	for _, id := range []string{"plataforma", "despegue", "en_orbita", "galaxy"} {
+		c := MustGet(id).Caps
+		if !c.OwnNumber {
+			t.Fatalf("%s must include the own number", id)
+		}
+		if !slices.Contains(Includes(MustGet(id)), "Tu propio WhatsApp: tus compradores ven tu nombre y tu número") {
+			t.Fatalf("%s: %v", id, Includes(MustGet(id)))
+		}
+	}
+	if c := MustGet("base").Caps; c.OwnNumber || c.LiveSale || c.WhatsApp != "" {
+		t.Fatal("base sells neither live nor by WhatsApp")
+	}
+	for _, p := range catalog {
+		if (p.Caps.LiveSale || p.Caps.WhatsApp != "") && !p.Caps.OwnNumber {
+			t.Fatalf("%s sells to buyers without its own number", p.ID)
+		}
+	}
+	if !MustGet("galaxy").Caps.ControlOwnNumber || MustGet("en_orbita").Caps.ControlOwnNumber {
+		t.Fatal("control on the own number is Galaxy's")
+	}
+	if c := Effective("en_orbita", []Selection{{FeatureID: "whatsapp_propio"}}); !c.ControlOwnNumber || !c.OwnNumber {
+		t.Fatalf("the add-on gives the control on the own number: %+v", c)
 	}
 }
